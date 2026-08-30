@@ -11,7 +11,6 @@ import { VoiceCallBar } from './components/VoiceCallBar';
 import { MyCardModal } from './components/MyCardModal';
 import { CardLibraryModal } from './components/CardLibraryModal';
 import { GuideModal } from './components/GuideModal';
-import { AndroidProjectModal } from './components/AndroidProjectModal';
 import { SettingsModal } from './components/SettingsModal';
 import { HostTransferModal } from './components/HostTransferModal';
 import { AlertCircle, Eye, Check, X, Sparkles, RefreshCw } from 'lucide-react';
@@ -107,7 +106,6 @@ function GameRoot() {
   const [showMyCard, setShowMyCard] = useState(false);
   const [showDeckLibrary, setShowDeckLibrary] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
-  const [showAndroidProject, setShowAndroidProject] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
   // If not currently in a room, render Home Screen
@@ -121,7 +119,6 @@ function GameRoot() {
           onJoinRoom={(code, pName) => joinRoom(code, pName)}
           onOpenDeckLibrary={() => setShowDeckLibrary(true)}
           onOpenGuide={() => setShowGuide(true)}
-          onOpenAndroidProject={() => setShowAndroidProject(true)}
           onOpenSettings={() => setShowSettings(true)}
         />
 
@@ -135,10 +132,6 @@ function GameRoot() {
           onClose={() => setShowGuide(false)}
         />
 
-        <AndroidProjectModal
-          isOpen={showAndroidProject}
-          onClose={() => setShowAndroidProject(false)}
-        />
 
         <SettingsModal
           isOpen={showSettings}
@@ -284,10 +277,6 @@ function GameRoot() {
         onClose={() => setShowGuide(false)}
       />
 
-      <AndroidProjectModal
-        isOpen={showAndroidProject}
-        onClose={() => setShowAndroidProject(false)}
-      />
 
       <SettingsModal
         isOpen={showSettings}
