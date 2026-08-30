@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Ma Sói: Đêm Lừa Dối</string>
+    <string name="title_activity_main">Ma Sói: Đêm Lừa Dối</string>
+    <string name="package_name">app.werewolf.nightofdeception</string>
+    <string name="custom_url_scheme">app.werewolf.nightofdeception</string>
+</resources>

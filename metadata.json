@@ -1,0 +1,10 @@
+{
+  "name": "Werewolf: Night of Deception",
+  "description": "Game Ma Sói Online Multiplayer Native Android & Web với Authoritative Game Server, Jetpack Compose UI, Room DB, Deck Builder & WebSockets.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
