@@ -5,6 +5,7 @@ import {
   LogIn,
   Layers,
   BookOpen,
+  Smartphone,
   Sliders,
   Sparkles,
   Shuffle,
@@ -20,6 +21,7 @@ interface Props {
   onJoinRoom: (code: string, nickname: string) => void;
   onOpenDeckLibrary: () => void;
   onOpenGuide: () => void;
+  onOpenAndroidProject: () => void;
   onOpenSettings: () => void;
 }
 
@@ -30,6 +32,7 @@ export const HomeScreen: React.FC<Props> = ({
   onJoinRoom,
   onOpenDeckLibrary,
   onOpenGuide,
+  onOpenAndroidProject,
   onOpenSettings,
 }) => {
   const [nameInput, setNameInput] = useState(nickname || '');
@@ -88,7 +91,7 @@ export const HomeScreen: React.FC<Props> = ({
               WEREWOLF: NIGHT OF DECEPTION
             </h1>
             <p className="text-[10px] text-zinc-400 font-mono">
-             Cảm ơn anh Trần Xuân Hùng đã làm con game như qq này
+              Authoritative Multiplayer • Native Android & Web
             </p>
           </div>
         </div>
@@ -110,15 +113,15 @@ export const HomeScreen: React.FC<Props> = ({
         <div className="space-y-3 max-w-2xl">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-rose-950/60 border border-rose-800/60 text-xs font-semibold text-rose-300 shadow-lg shadow-rose-950/30">
             <Sparkles className="w-3.5 h-3.5 text-rose-400" />
-            <span>Màn đêm buông xuống • Canh phòng lạnh lẽo</span>
+            <span>Màn đêm buông xuống • Cuộc chiến suy luận đỉnh cao</span>
           </div>
 
           <h2 className="text-3xl sm:text-5xl font-serif font-black tracking-tight uppercase text-white drop-shadow-2xl">
-            Who is DÂN? Who is SÓI?
+            AI LÀ DÂN? AI LÀ SÓI?
           </h2>
           <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed">
-            Trải nghiệm game Ma Sói thời gian thực với Authoritative Game Server,
-              WebSocket Cloud ổn định, bảo mật thông tin vai trò và đầy đủ 13 vai trò mở rộng.
+            Trải nghiệm game Ma Sói thời gian thực với công nghệ Authoritative Game Server bảo mật tuyệt đối,
+            không lộ danh tính, đầy đủ 13 vai trò mở rộng và hỗ trợ xuất mã nguồn Android Native Kotlin hoàn chỉnh.
           </p>
         </div>
 
@@ -190,7 +193,7 @@ export const HomeScreen: React.FC<Props> = ({
         </div>
 
         {/* Feature Navigation Cards Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-3xl pt-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full max-w-3xl pt-4">
           <button
             onClick={onOpenDeckLibrary}
             className="p-4 rounded-3xl bg-zinc-950/60 hover:bg-zinc-900 border border-zinc-800/80 hover:border-purple-500/50 text-left space-y-2 transition-all group"
@@ -221,13 +224,26 @@ export const HomeScreen: React.FC<Props> = ({
             </div>
           </button>
 
-
+          <button
+            onClick={onOpenAndroidProject}
+            className="p-4 rounded-3xl bg-zinc-950/60 hover:bg-zinc-900 border border-zinc-800/80 hover:border-emerald-500/50 text-left space-y-2 transition-all group"
+          >
+            <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center justify-center group-hover:scale-110 transition">
+              <Smartphone className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-bold text-xs text-white font-serif">ANDROID NATIVE KOTLIN</div>
+              <p className="text-[11px] text-zinc-400 mt-0.5">
+                Mã nguồn Jetpack Compose, Room DB & Hướng dẫn Build APK
+              </p>
+            </div>
+          </button>
         </div>
       </main>
 
       {/* Footer */}
       <footer className="relative z-10 w-full max-w-6xl mx-auto px-4 py-4 text-center text-zinc-500 text-[11px] font-mono border-t border-zinc-900/60">
-        Werewolf: Night of Deception • Nơi bạn được tự do lý lẽ cùn cối  • Nơi thoả mãn đam mê bốc phét
+        Werewolf: Night of Deception • Authoritative WebSocket Engine • Kotlin Jetpack Compose Architecture
       </footer>
     </div>
   );
