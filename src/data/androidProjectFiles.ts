@@ -191,7 +191,7 @@ import okhttp3.*
 import java.util.concurrent.TimeUnit
 
 class WerewolfWebSocketClient(
-    private val serverBaseUrl: String = "wss://ais-dev-5pkjc5l7wt5epfrb2bm37e-161666359350.asia-southeast1.run.app/ws"
+    private val serverBaseUrl: String = "wss://werewolf-night-ojrn.onrender.com/ws"
 ) {
     private val client = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)

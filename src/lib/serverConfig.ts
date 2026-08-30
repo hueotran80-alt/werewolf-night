@@ -97,21 +97,11 @@ export function saveServer(raw: string): void {
 }
 
 function getBuildTimeDefault(): string {
-  try {
-    // @ts-ignore - Vite injects import.meta.env at build time
-    return (import.meta as any)?.env?.VITE_SERVER_URL || '';
-  } catch {
-    return '';
-  }
+  return 'https://werewolf-night-ojrn.onrender.com';
 }
-
 /** Trả về địa chỉ máy chủ hiện tại đang được cấu hình (chuỗi thô, có thể rỗng). */
 export function getConfiguredServerRaw(): string {
-  const saved = getSavedServerRaw();
-  if (saved) return saved;
-  const buildDefault = getBuildTimeDefault();
-  if (buildDefault) return buildDefault;
-  return '';
+  return getBuildTimeDefault();
 }
 
 /** true nếu app đang dùng địa chỉ do người dùng/nhà phát triển chỉ định (không phải window.location). */
