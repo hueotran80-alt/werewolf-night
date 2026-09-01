@@ -7,8 +7,7 @@ import {
   LocalParticipant,
   Track,
   ConnectionState,
-  LocalAudioTrack,
-  RemoteAudioTrack,
+  DisconnectReason,
 } from 'livekit-client';
 
 export interface LiveKitConfig {
@@ -43,29 +42,6 @@ export interface LiveKitCallbacks {
   onError?: (error: Error) => void;
 }
 
-/**
- * LiveKit Voice Service
- *
- * Kiến trúc:
- *
- * Microphone
- *     ↓
- * LocalAudioTrack
- *     ↓
- * LiveKit
- *     ↓
- * RemoteAudioTrack
- *     ↓
- * HTMLAudioElement
- *
- * Không tự xử lý:
- * - RTCPeerConnection
- * - SDP
- * - ICE candidate
- * - STUN
- * - TURN
- */
-
 class LiveKitService {
   private room: Room | null = null;
 
@@ -77,17 +53,15 @@ class LiveKitService {
 
   private microphoneEnabled = false;
 
-  private connecting = false;
-
   private remoteAudioElements =
     new Map<string, HTMLAudioElement>();
 
-  private remoteAudioTracks =
-    new Map<string, RemoteAudioTrack>();
-
   /**
-   * Khởi tạo service
+   * ========================================
+   * INITIALIZE
+   * ========================================
    */
+
   initialize(
     config: LiveKitConfig,
     callbacks: LiveKitCallbacks = {}
@@ -100,11 +74,11 @@ class LiveKitService {
     );
 
     console.log(
-      '[LIVEKIT] Initializing'
+      '[LIVEKIT] Initializing LiveKit Service'
     );
 
     console.log(
-      '[LIVEKIT] URL:',
+      '[LIVEKIT] Server:',
       config.url
     );
 
@@ -121,8 +95,11 @@ class LiveKitService {
   }
 
   /**
-   * Kết nối LiveKit
+   * ========================================
+   * CONNECT
+   * ========================================
    */
+
   async connect(): Promise<boolean> {
     if (!this.config) {
       const error = new Error(
@@ -150,16 +127,6 @@ class LiveKitService {
       return true;
     }
 
-    if (this.connecting) {
-      console.log(
-        '[LIVEKIT] Connection already in progress'
-      );
-
-      return false;
-    }
-
-    this.connecting = true;
-
     try {
       console.log(
         '[LIVEKIT] ========================================'
@@ -170,72 +137,83 @@ class LiveKitService {
       );
 
       console.log(
-        '[LIVEKIT] Server:',
+        '[LIVEKIT] URL:',
         this.config.url
       );
 
       /**
-       * Cấu hình Room
+       * Audio configuration
        *
-       * adaptiveStream:
-       * LiveKit tự điều chỉnh stream.
-       *
-       * dynacast:
-       * Giúp tối ưu bandwidth.
+       * Quan trọng:
+       * - Echo cancellation
+       * - Noise suppression
+       * - Auto gain control
+       * - Mono microphone
        */
+
       this.room = new Room({
         adaptiveStream: true,
         dynacast: true,
 
-        // Giữ kết nối ổn định hơn khi mạng thay đổi.
-        disconnectOnPageLeave: false,
+        audioCaptureDefaults: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+        },
       });
+
+      console.log(
+        '[LIVEKIT] Room created'
+      );
 
       this.registerRoomEvents();
 
       await this.room.connect(
         this.config.url,
-        this.config.token,
-        {
-          autoSubscribe: true,
-        }
+        this.config.token
       );
 
       this.connected = true;
 
       console.log(
-        '[LIVEKIT] ✅ Connected'
+        '[LIVEKIT] ✅ CONNECTED'
       );
 
       console.log(
-        '[LIVEKIT] Room:',
+        '[LIVEKIT] Room name:',
         this.room.name
       );
 
       console.log(
-        '[LIVEKIT] Local participant:',
+        '[LIVEKIT] Local identity:',
         this.room.localParticipant.identity
       );
 
-      /**
-       * Kiểm tra participant đã có sẵn
-       *
-       * Trường hợp:
-       * Máy B vào sau máy A.
-       *
-       * Máy A đã publish microphone.
-       *
-       * Khi B connect, phải kiểm tra các
-       * participant hiện tại.
-       */
-      this.processExistingParticipants();
+      console.log(
+        '[LIVEKIT] Remote participants:',
+        this.room.remoteParticipants.size
+      );
+
+      this.room.remoteParticipants.forEach(
+        (participant) => {
+          console.log(
+            '[LIVEKIT][REMOTE] Existing participant:',
+            participant.identity
+          );
+        }
+      );
+
+      console.log(
+        '[LIVEKIT] ========================================'
+      );
 
       this.callbacks.onConnected?.();
 
       return true;
     } catch (error) {
       console.error(
-        '[LIVEKIT] ❌ Connection failed:',
+        '[LIVEKIT] ❌ CONNECTION FAILED:',
         error
       );
 
@@ -249,102 +227,44 @@ class LiveKitService {
       this.callbacks.onError?.(err);
 
       return false;
-    } finally {
-      this.connecting = false;
     }
   }
 
   /**
-   * Xử lý participant đã tồn tại khi vừa join room
+   * ========================================
+   * ROOM EVENTS
+   * ========================================
    */
-  private processExistingParticipants() {
-    if (!this.room) {
-      return;
-    }
 
-    console.log(
-      '[LIVEKIT][ROOM] Existing participants:',
-      this.room.remoteParticipants.size
-    );
-
-    this.room.remoteParticipants.forEach(
-      (participant) => {
-        console.log(
-          '[LIVEKIT][PARTICIPANT] Existing:',
-          participant.identity
-        );
-
-        participant.trackPublications.forEach(
-          (publication) => {
-            if (
-              publication.kind !== Track.Kind.Audio
-            ) {
-              return;
-            }
-
-            console.log(
-              '[LIVEKIT][TRACK] Existing audio publication:',
-              {
-                participant:
-                  participant.identity,
-                trackSid:
-                  publication.trackSid,
-                subscribed:
-                  publication.isSubscribed,
-              }
-            );
-
-            if (
-              publication.isSubscribed &&
-              publication.track
-            ) {
-              const track =
-                publication.track;
-
-              if (
-                track.kind ===
-                Track.Kind.Audio
-              ) {
-                this.attachRemoteAudio(
-                  track,
-                  participant
-                );
-              }
-            }
-          }
-        );
-      }
-    );
-  }
-
-  /**
-   * Đăng ký Room events
-   */
   private registerRoomEvents() {
     if (!this.room) {
       return;
     }
 
     /**
-     * Connected
+     * CONNECTED
      */
+
     this.room.on(
       RoomEvent.Connected,
       () => {
         console.log(
-          '[LIVEKIT][ROOM] Connected'
+          '[LIVEKIT][ROOM] ✅ Connected event'
         );
       }
     );
 
     /**
-     * Disconnected
+     * DISCONNECTED
      */
+
     this.room.on(
       RoomEvent.Disconnected,
-      (reason) => {
+      (
+        reason?: DisconnectReason
+      ) => {
         console.log(
-          '[LIVEKIT][ROOM] Disconnected:',
+          '[LIVEKIT][ROOM] ❌ Disconnected:',
           reason
         );
 
@@ -359,14 +279,35 @@ class LiveKitService {
     );
 
     /**
-     * Participant connected
+     * PARTICIPANT CONNECTED
      */
+
     this.room.on(
       RoomEvent.ParticipantConnected,
-      (participant) => {
+      (
+        participant: RemoteParticipant
+      ) => {
         console.log(
-          '[LIVEKIT][PARTICIPANT] Connected:',
+          '[LIVEKIT][PARTICIPANT] ========================================'
+        );
+
+        console.log(
+          '[LIVEKIT][PARTICIPANT] ✅ Connected:',
           participant.identity
+        );
+
+        console.log(
+          '[LIVEKIT][PARTICIPANT] SID:',
+          participant.sid
+        );
+
+        console.log(
+          '[LIVEKIT][PARTICIPANT] Publications:',
+          participant.trackPublications.size
+        );
+
+        console.log(
+          '[LIVEKIT][PARTICIPANT] ========================================'
         );
 
         this.callbacks.onParticipantConnected?.(
@@ -376,13 +317,16 @@ class LiveKitService {
     );
 
     /**
-     * Participant disconnected
+     * PARTICIPANT DISCONNECTED
      */
+
     this.room.on(
       RoomEvent.ParticipantDisconnected,
-      (participant) => {
+      (
+        participant: RemoteParticipant
+      ) => {
         console.log(
-          '[LIVEKIT][PARTICIPANT] Disconnected:',
+          '[LIVEKIT][PARTICIPANT] ❌ Disconnected:',
           participant.identity
         );
 
@@ -397,40 +341,75 @@ class LiveKitService {
     );
 
     /**
-     * Track subscribed
+     * TRACK SUBSCRIBED
      *
-     * Đây là event quan trọng nhất
-     * đối với việc nghe người khác.
+     * Đây là event cực kỳ quan trọng.
+     *
+     * Nếu máy tính thấy:
+     *
+     * TRACK SUBSCRIBED
+     *
+     * thì máy tính đã nhận được
+     * audio từ điện thoại.
      */
+
     this.room.on(
       RoomEvent.TrackSubscribed,
       (
-        track,
-        publication,
-        participant
+        track: RemoteTrack,
+        publication: RemoteTrackPublication,
+        participant: RemoteParticipant
       ) => {
         console.log(
-          '[LIVEKIT][TRACK] ✅ Subscribed:',
+          '[LIVEKIT][TRACK] ========================================'
+        );
+
+        console.log(
+          '[LIVEKIT][TRACK] ✅ SUBSCRIBED'
+        );
+
+        console.log(
+          '[LIVEKIT][TRACK] Kind:',
+          track.kind
+        );
+
+        console.log(
+          '[LIVEKIT][TRACK] Participant:',
+          participant.identity
+        );
+
+        console.log(
+          '[LIVEKIT][TRACK] Track SID:',
+          publication.trackSid
+        );
+
+        console.log(
+          '[LIVEKIT][TRACK] Publication:',
           {
-            kind: track.kind,
-            participant:
-              participant.identity,
-            trackSid:
-              publication.trackSid,
-            muted:
-              track.isMuted,
+            kind: publication.kind,
+            source: publication.source,
+            trackSid: publication.trackSid,
+            trackName: publication.trackName,
+            muted: publication.isMuted,
           }
         );
 
         if (
-          track.kind ===
-          Track.Kind.Audio
+          track.kind === Track.Kind.Audio
         ) {
+          console.log(
+            '[LIVEKIT][TRACK] 🎤 Remote AUDIO detected'
+          );
+
           this.attachRemoteAudio(
             track,
             participant
           );
         }
+
+        console.log(
+          '[LIVEKIT][TRACK] ========================================'
+        );
 
         this.callbacks.onTrackSubscribed?.(
           track,
@@ -441,17 +420,18 @@ class LiveKitService {
     );
 
     /**
-     * Track unsubscribed
+     * TRACK UNSUBSCRIBED
      */
+
     this.room.on(
       RoomEvent.TrackUnsubscribed,
       (
-        track,
-        publication,
-        participant
+        track: RemoteTrack,
+        publication: RemoteTrackPublication,
+        participant: RemoteParticipant
       ) => {
         console.log(
-          '[LIVEKIT][TRACK] ❌ Unsubscribed:',
+          '[LIVEKIT][TRACK] ❌ UNSUBSCRIBED:',
           {
             kind: track.kind,
             participant:
@@ -462,8 +442,7 @@ class LiveKitService {
         );
 
         if (
-          track.kind ===
-          Track.Kind.Audio
+          track.kind === Track.Kind.Audio
         ) {
           this.removeRemoteAudio(
             participant.identity
@@ -479,18 +458,47 @@ class LiveKitService {
     );
 
     /**
-     * Local track published
+     * LOCAL TRACK PUBLISHED
+     *
+     * Đây là log quan trọng nhất
+     * để biết điện thoại đã đưa mic
+     * lên LiveKit hay chưa.
      */
+
     this.room.on(
       RoomEvent.LocalTrackPublished,
       (publication) => {
         console.log(
-          '[LIVEKIT][LOCAL TRACK] ✅ Published:',
-          {
-            kind: publication.kind,
-            trackSid:
-              publication.trackSid,
-          }
+          '[LIVEKIT][LOCAL TRACK] ========================================'
+        );
+
+        console.log(
+          '[LIVEKIT][LOCAL TRACK] ✅ PUBLISHED'
+        );
+
+        console.log(
+          '[LIVEKIT][LOCAL TRACK] Kind:',
+          publication.kind
+        );
+
+        console.log(
+          '[LIVEKIT][LOCAL TRACK] Source:',
+          publication.source
+        );
+
+        console.log(
+          '[LIVEKIT][LOCAL TRACK] SID:',
+          publication.trackSid
+        );
+
+        console.log(
+          '[LIVEKIT][LOCAL TRACK] Name:',
+          publication.trackName
+        );
+
+        console.log(
+          '[LIVEKIT][LOCAL TRACK] Muted:',
+          publication.isMuted
         );
 
         if (
@@ -498,111 +506,76 @@ class LiveKitService {
           Track.Kind.Audio
         ) {
           console.log(
-            '[LIVEKIT][MIC] Local audio published'
+            '[LIVEKIT][LOCAL TRACK] 🎤 MICROPHONE AUDIO PUBLISHED'
           );
         }
+
+        console.log(
+          '[LIVEKIT][LOCAL TRACK] ========================================'
+        );
       }
     );
 
     /**
-     * Local track unpublished
+     * LOCAL TRACK UNPUBLISHED
      */
+
     this.room.on(
       RoomEvent.LocalTrackUnpublished,
       (publication) => {
         console.log(
-          '[LIVEKIT][LOCAL TRACK] Unpublished:',
+          '[LIVEKIT][LOCAL TRACK] ❌ UNPUBLISHED:',
           {
             kind: publication.kind,
-            trackSid:
-              publication.trackSid,
+            source: publication.source,
+            trackSid: publication.trackSid,
           }
         );
       }
     );
 
     /**
-     * Connection state
+     * CONNECTION STATE
      */
+
     this.room.on(
       RoomEvent.ConnectionStateChanged,
-      (state) => {
+      (
+        state: ConnectionState
+      ) => {
         console.log(
-          '[LIVEKIT][CONNECTION] State:',
+          '[LIVEKIT][CONNECTION]',
           state
         );
+      }
+    );
 
-        if (
-          state ===
-          ConnectionState.Connected
-        ) {
-          this.connected = true;
+    /**
+     * ACTIVE SPEAKERS
+     */
+
+    this.room.on(
+      RoomEvent.ActiveSpeakersChanged,
+      (speakers) => {
+        if (speakers.length > 0) {
+          console.log(
+            '[LIVEKIT][SPEAKER] Active:',
+            speakers.map(
+              (speaker) =>
+                speaker.identity
+            )
+          );
         }
-
-        if (
-          state ===
-          ConnectionState.Disconnected
-        ) {
-          this.connected = false;
-        }
-      }
-    );
-
-    /**
-     * Reconnecting
-     */
-    this.room.on(
-      RoomEvent.Reconnecting,
-      () => {
-        console.warn(
-          '[LIVEKIT][CONNECTION] ⚠️ Reconnecting...'
-        );
-      }
-    );
-
-    /**
-     * Reconnected
-     */
-    this.room.on(
-      RoomEvent.Reconnected,
-      () => {
-        console.log(
-          '[LIVEKIT][CONNECTION] ✅ Reconnected'
-        );
-
-        this.connected = true;
-
-        /**
-         * Kiểm tra lại audio sau reconnect.
-         */
-        this.processExistingParticipants();
-      }
-    );
-
-    /**
-     * Audio playback status
-     */
-    this.room.on(
-      RoomEvent.AudioPlaybackStatusChanged,
-      () => {
-        console.log(
-          '[LIVEKIT][AUDIO] Playback status changed:',
-          this.room?.canPlaybackAudio
-        );
       }
     );
   }
 
   /**
-   * Bật microphone
-   *
-   * Quan trọng:
-   * Chủ động bật:
-   *
-   * echoCancellation
-   * noiseSuppression
-   * autoGainControl
+   * ========================================
+   * MICROPHONE
+   * ========================================
    */
+
   async enableMicrophone(): Promise<boolean> {
     if (!this.room) {
       console.error(
@@ -618,56 +591,218 @@ class LiveKitService {
       );
 
       console.log(
-        '[LIVEKIT][MIC] Enabling microphone...'
+        '[LIVEKIT][MIC] 🎤 ENABLE MICROPHONE'
+      );
+
+      console.log(
+        '[LIVEKIT][MIC] Participant:',
+        this.room.localParticipant.identity
+      );
+
+      console.log(
+        '[LIVEKIT][MIC] Browser:',
+        navigator.userAgent
+      );
+
+      console.log(
+        '[LIVEKIT][MIC] Protocol:',
+        window.location.protocol
+      );
+
+      console.log(
+        '[LIVEKIT][MIC] Host:',
+        window.location.host
       );
 
       /**
-       * LiveKit sẽ tạo LocalAudioTrack
-       * với các constraint này.
+       * Kiểm tra MediaDevices
        */
-      await this.room.localParticipant.setMicrophoneEnabled(
-        true,
-        {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
 
-          channelCount: 1,
+      console.log(
+        '[LIVEKIT][MIC] mediaDevices:',
+        !!navigator.mediaDevices
+      );
 
-          sampleRate: 48000,
+      console.log(
+        '[LIVEKIT][MIC] getUserMedia:',
+        !!navigator.mediaDevices?.getUserMedia
+      );
+
+      /**
+       * Kiểm tra permission nếu browser hỗ trợ
+       */
+
+      try {
+        if (
+          navigator.permissions
+        ) {
+          const permission =
+            await navigator.permissions.query({
+              name: 'microphone' as PermissionName,
+            });
+
+          console.log(
+            '[LIVEKIT][MIC] Permission state:',
+            permission.state
+          );
         }
+      } catch (permissionError) {
+        console.log(
+          '[LIVEKIT][MIC] Permission query unavailable:',
+          permissionError
+        );
+      }
+
+      /**
+       * Bật microphone
+       */
+
+      console.log(
+        '[LIVEKIT][MIC] Requesting microphone...'
+      );
+
+      await this.room.localParticipant.setMicrophoneEnabled(
+        true
       );
 
       this.microphoneEnabled = true;
 
-      /**
-       * Kiểm tra track thực tế
-       */
-      const publication =
-        this.room.localParticipant
-          .getTrackPublication(
-            Track.Source.Microphone
-          );
+      console.log(
+        '[LIVEKIT][MIC] ✅ setMicrophoneEnabled SUCCESS'
+      );
 
-      if (publication) {
-        console.log(
-          '[LIVEKIT][MIC] Publication:',
-          {
+      /**
+       * Lấy tất cả local publications
+       */
+
+      const publications =
+        Array.from(
+          this.room.localParticipant
+            .trackPublications
+            .values()
+        );
+
+      console.log(
+        '[LIVEKIT][MIC] Local publications count:',
+        publications.length
+      );
+
+      console.log(
+        '[LIVEKIT][MIC] Local publications:',
+        publications.map(
+          (publication) => ({
+            kind: publication.kind,
+            source: publication.source,
             trackSid:
               publication.trackSid,
+            trackName:
+              publication.trackName,
             muted:
               publication.isMuted,
-            subscribed:
-              publication.isSubscribed,
-            kind:
-              publication.kind,
-          }
+          })
+        )
+      );
+
+      /**
+       * Tìm microphone publication
+       */
+
+      const micPublication =
+        this.room.localParticipant.getTrackPublication(
+          Track.Source.Microphone
         );
+
+      if (!micPublication) {
+        console.error(
+          '[LIVEKIT][MIC] ❌❌❌ MICROPHONE PUBLICATION NOT FOUND'
+        );
+
+        console.error(
+          '[LIVEKIT][MIC] Có nghĩa là setMicrophoneEnabled() chạy nhưng microphone chưa được publish.'
+        );
+
+        return false;
       }
 
       console.log(
-        '[LIVEKIT][MIC] ✅ Microphone enabled'
+        '[LIVEKIT][MIC] 🎤 Microphone publication FOUND'
       );
+
+      console.log(
+        '[LIVEKIT][MIC] Publication info:',
+        {
+          sid:
+            micPublication.trackSid,
+          kind:
+            micPublication.kind,
+          source:
+            micPublication.source,
+          name:
+            micPublication.trackName,
+          muted:
+            micPublication.isMuted,
+        }
+      );
+
+      /**
+       * Kiểm tra LocalTrack
+       */
+
+      if (!micPublication.track) {
+        console.error(
+          '[LIVEKIT][MIC] ❌ Microphone publication has NO TRACK'
+        );
+
+        return false;
+      }
+
+      console.log(
+        '[LIVEKIT][MIC] 🎤 Local audio track FOUND'
+      );
+
+      const mediaStreamTrack =
+        micPublication.track
+          .mediaStreamTrack;
+
+      console.log(
+        '[LIVEKIT][MIC] MediaTrack:',
+        mediaStreamTrack
+      );
+
+      console.log(
+        '[LIVEKIT][MIC] Track ID:',
+        mediaStreamTrack.id
+      );
+
+      console.log(
+        '[LIVEKIT][MIC] Track enabled:',
+        mediaStreamTrack.enabled
+      );
+
+      console.log(
+        '[LIVEKIT][MIC] Track readyState:',
+        mediaStreamTrack.readyState
+      );
+
+      console.log(
+        '[LIVEKIT][MIC] Track muted:',
+        mediaStreamTrack.muted
+      );
+
+      /**
+       * Lấy thông tin microphone
+       */
+
+      try {
+        console.log(
+          '[LIVEKIT][MIC] Track settings:',
+          mediaStreamTrack.getSettings()
+        );
+      } catch {
+        console.log(
+          '[LIVEKIT][MIC] Track settings unavailable'
+        );
+      }
 
       console.log(
         '[LIVEKIT][MIC] ========================================'
@@ -676,7 +811,7 @@ class LiveKitService {
       return true;
     } catch (error) {
       console.error(
-        '[LIVEKIT][MIC] ❌ Failed:',
+        '[LIVEKIT][MIC] ❌ ENABLE FAILED:',
         error
       );
 
@@ -694,16 +829,23 @@ class LiveKitService {
   }
 
   /**
-   * Tắt microphone
+   * ========================================
+   * DISABLE MICROPHONE
+   * ========================================
    */
+
   async disableMicrophone(): Promise<boolean> {
     if (!this.room) {
+      console.error(
+        '[LIVEKIT][MIC] ❌ Room chưa kết nối'
+      );
+
       return false;
     }
 
     try {
       console.log(
-        '[LIVEKIT][MIC] Disabling microphone...'
+        '[LIVEKIT][MIC] 🔇 Disabling microphone...'
       );
 
       await this.room.localParticipant.setMicrophoneEnabled(
@@ -713,7 +855,7 @@ class LiveKitService {
       this.microphoneEnabled = false;
 
       console.log(
-        '[LIVEKIT][MIC] 🔇 Microphone disabled'
+        '[LIVEKIT][MIC] ✅ Microphone disabled'
       );
 
       return true;
@@ -728,15 +870,24 @@ class LiveKitService {
   }
 
   /**
-   * Toggle microphone
+   * ========================================
+   * TOGGLE MICROPHONE
+   * ========================================
    */
+
   async toggleMicrophone(): Promise<boolean> {
     console.log(
-      '[LIVEKIT][MIC] toggle:',
+      '[LIVEKIT][MIC] toggleMicrophone()'
+    );
+
+    console.log(
+      '[LIVEKIT][MIC] Current state:',
       this.microphoneEnabled
     );
 
-    if (this.microphoneEnabled) {
+    if (
+      this.microphoneEnabled
+    ) {
       return this.disableMicrophone();
     }
 
@@ -744,15 +895,88 @@ class LiveKitService {
   }
 
   /**
-   * Kiểm tra microphone
+   * ========================================
+   * MICROPHONE STATE
+   * ========================================
    */
+
   isMicrophoneEnabled(): boolean {
     return this.microphoneEnabled;
   }
 
   /**
-   * Lấy local participant
+   * ========================================
+   * AUDIO START
+   *
+   * Dùng cho Android/WebView khi autoplay
+   * bị trình duyệt chặn.
+   *
+   * Nên gọi hàm này từ một nút mà người
+   * dùng trực tiếp bấm, ví dụ nút "Nghe".
+   * ========================================
    */
+
+  async startAudio(): Promise<boolean> {
+    if (!this.room) {
+      console.error(
+        '[LIVEKIT][AUDIO] ❌ Room chưa kết nối'
+      );
+
+      return false;
+    }
+
+    try {
+      console.log(
+        '[LIVEKIT][AUDIO] Starting audio playback...'
+      );
+
+      await this.room.startAudio();
+
+      console.log(
+        '[LIVEKIT][AUDIO] ✅ Audio playback started'
+      );
+
+      /**
+       * Thử play lại tất cả remote audio
+       */
+
+      for (const [
+        identity,
+        element,
+      ] of this.remoteAudioElements) {
+        try {
+          await element.play();
+
+          console.log(
+            '[LIVEKIT][AUDIO] ▶️ Playback resumed:',
+            identity
+          );
+        } catch (error) {
+          console.warn(
+            '[LIVEKIT][AUDIO] ⚠️ Playback still blocked:',
+            identity,
+            error
+          );
+        }
+      }
+
+      return true;
+    } catch (error) {
+      console.warn(
+        '[LIVEKIT][AUDIO] ⚠️ startAudio failed:',
+        error
+      );
+
+      return false;
+    }
+  }
+
+  /**
+   * ========================================
+   * LOCAL PARTICIPANT
+   * ========================================
+   */
+
   getLocalParticipant():
     LocalParticipant | null {
     return (
@@ -762,15 +986,21 @@ class LiveKitService {
   }
 
   /**
-   * Lấy Room
+   * ========================================
+   * ROOM
+   * ========================================
    */
+
   getRoom(): Room | null {
     return this.room;
   }
 
   /**
-   * Kiểm tra kết nối
+   * ========================================
+   * CONNECTED
+   * ========================================
    */
+
   isConnected(): boolean {
     return (
       this.connected &&
@@ -779,8 +1009,134 @@ class LiveKitService {
   }
 
   /**
-   * Gắn remote audio
+   * ========================================
+   * DEBUG MICROPHONE
+   *
+   * Có thể gọi trong console:
+   *
+   * liveKitService.debugMicrophone()
+   * ========================================
    */
+
+  debugMicrophone() {
+    console.log(
+      '[LIVEKIT][DEBUG MIC] ========================================'
+    );
+
+    if (!this.room) {
+      console.error(
+        '[LIVEKIT][DEBUG MIC] ❌ No room'
+      );
+
+      return;
+    }
+
+    const participant =
+      this.room.localParticipant;
+
+    console.log(
+      '[LIVEKIT][DEBUG MIC] Participant:',
+      participant.identity
+    );
+
+    console.log(
+      '[LIVEKIT][DEBUG MIC] Connected:',
+      this.connected
+    );
+
+    console.log(
+      '[LIVEKIT][DEBUG MIC] Microphone flag:',
+      this.microphoneEnabled
+    );
+
+    const publications =
+      Array.from(
+        participant.trackPublications.values()
+      );
+
+    console.log(
+      '[LIVEKIT][DEBUG MIC] Publications:',
+      publications.map(
+        (publication) => ({
+          kind: publication.kind,
+          source: publication.source,
+          sid: publication.trackSid,
+          name: publication.trackName,
+          muted: publication.isMuted,
+          hasTrack:
+            !!publication.track,
+        })
+      )
+    );
+
+    const micPublication =
+      participant.getTrackPublication(
+        Track.Source.Microphone
+      );
+
+    if (!micPublication) {
+      console.error(
+        '[LIVEKIT][DEBUG MIC] ❌ NO MICROPHONE PUBLICATION'
+      );
+
+      return;
+    }
+
+    console.log(
+      '[LIVEKIT][DEBUG MIC] Microphone publication:',
+      micPublication
+    );
+
+    if (!micPublication.track) {
+      console.error(
+        '[LIVEKIT][DEBUG MIC] ❌ NO LOCAL TRACK'
+      );
+
+      return;
+    }
+
+    const mediaTrack =
+      micPublication.track
+        .mediaStreamTrack;
+
+    console.log(
+      '[LIVEKIT][DEBUG MIC] MediaTrack:',
+      mediaTrack
+    );
+
+    console.log(
+      '[LIVEKIT][DEBUG MIC] enabled:',
+      mediaTrack.enabled
+    );
+
+    console.log(
+      '[LIVEKIT][DEBUG MIC] muted:',
+      mediaTrack.muted
+    );
+
+    console.log(
+      '[LIVEKIT][DEBUG MIC] readyState:',
+      mediaTrack.readyState
+    );
+
+    try {
+      console.log(
+        '[LIVEKIT][DEBUG MIC] settings:',
+        mediaTrack.getSettings()
+      );
+    } catch {}
+
+    console.log(
+      '[LIVEKIT][DEBUG MIC] ========================================'
+    );
+  }
+
+  /**
+   * ========================================
+   * REMOTE AUDIO
+   * ========================================
+   */
+
   private attachRemoteAudio(
     track: RemoteTrack,
     participant: RemoteParticipant
@@ -797,31 +1153,79 @@ class LiveKitService {
 
     try {
       console.log(
-        '[LIVEKIT][AUDIO] Attaching:',
+        '[LIVEKIT][AUDIO] ========================================'
+      );
+
+      console.log(
+        '[LIVEKIT][AUDIO] Attaching remote audio'
+      );
+
+      console.log(
+        '[LIVEKIT][AUDIO] Participant:',
         identity
       );
 
+      console.log(
+        '[LIVEKIT][AUDIO] Track kind:',
+        track.kind
+      );
+
       /**
-       * Không tạo 2 audio element
-       * cho cùng một participant.
+       * Xóa audio cũ nếu tồn tại
        */
+
       this.removeRemoteAudio(
         identity
       );
 
-      const audioElement =
-        track.attach() as HTMLAudioElement;
-
-      audioElement.autoplay = true;
-
-      audioElement.controls = false;
-
-      audioElement.playsInline = true;
-
       /**
-       * Không mute remote audio.
+       * Attach LiveKit track
        */
-      audioElement.muted = false;
+
+      const attached =
+        track.attach();
+
+      let audioElement: HTMLAudioElement;
+
+      if (
+        attached instanceof
+        HTMLAudioElement
+      ) {
+        audioElement = attached;
+      } else {
+        /**
+         * Trong một số môi trường,
+         * attach() có thể trả HTMLElement.
+         */
+
+        audioElement =
+          document.createElement(
+            'audio'
+          );
+
+        audioElement.autoplay =
+          true;
+
+        audioElement.playsInline =
+          true;
+
+        audioElement.srcObject =
+          (
+            attached as HTMLMediaElement
+          ).srcObject;
+      }
+
+      audioElement.autoplay =
+        true;
+
+      audioElement.controls =
+        false;
+
+      audioElement.playsInline =
+        true;
+
+      audioElement.muted =
+        false;
 
       audioElement.volume = 1;
 
@@ -830,105 +1234,91 @@ class LiveKitService {
         ''
       );
 
-      audioElement.setAttribute(
-        'autoplay',
-        ''
-      );
-
       audioElement.dataset.livekitParticipant =
         identity;
 
       /**
-       * Ẩn audio element.
-       *
-       * Không dùng display:none vì một số
-       * browser/WebView có thể xử lý media
-       * khác khi element bị display:none.
+       * Đưa vào DOM
        */
-      audioElement.style.position =
-        'fixed';
 
-      audioElement.style.width =
-        '1px';
-
-      audioElement.style.height =
-        '1px';
-
-      audioElement.style.opacity =
-        '0';
-
-      audioElement.style.pointerEvents =
-        'none';
-
-      audioElement.style.left =
-        '-10000px';
-
-      document.body.appendChild(
-        audioElement
-      );
+      if (
+        !audioElement.isConnected
+      ) {
+        document.body.appendChild(
+          audioElement
+        );
+      }
 
       this.remoteAudioElements.set(
         identity,
         audioElement
       );
 
-      /**
-       * Lưu track
-       */
-      if (
-        track instanceof
-        RemoteAudioTrack
-      ) {
-        this.remoteAudioTracks.set(
-          identity,
-          track
-        );
-      }
+      console.log(
+        '[LIVEKIT][AUDIO] ✅ Audio element attached'
+      );
 
       console.log(
-        '[LIVEKIT][AUDIO] 🔊 Remote audio attached:',
-        {
-          participant: identity,
-          readyState:
-            audioElement.readyState,
-          volume:
-            audioElement.volume,
-          muted:
-            audioElement.muted,
-        }
+        '[LIVEKIT][AUDIO] Element:',
+        audioElement
+      );
+
+      console.log(
+        '[LIVEKIT][AUDIO] muted:',
+        audioElement.muted
+      );
+
+      console.log(
+        '[LIVEKIT][AUDIO] volume:',
+        audioElement.volume
+      );
+
+      console.log(
+        '[LIVEKIT][AUDIO] autoplay:',
+        audioElement.autoplay
       );
 
       /**
-       * Thử playback.
+       * Thử phát ngay
        */
+
       audioElement
         .play()
         .then(() => {
           console.log(
-            '[LIVEKIT][AUDIO] ▶️ Playback started:',
+            '[LIVEKIT][AUDIO] ✅ ▶️ Remote playback started:',
             identity
           );
         })
         .catch((error) => {
           console.warn(
-            '[LIVEKIT][AUDIO] ⚠️ Playback blocked:',
-            {
-              participant: identity,
-              error,
-            }
+            '[LIVEKIT][AUDIO] ⚠️ Autoplay blocked:',
+            identity,
+            error
+          );
+
+          console.warn(
+            '[LIVEKIT][AUDIO] Hãy gọi liveKitService.startAudio() từ thao tác người dùng.'
           );
         });
+
+      console.log(
+        '[LIVEKIT][AUDIO] ========================================'
+      );
     } catch (error) {
       console.error(
-        '[LIVEKIT][AUDIO] ❌ Attach failed:',
+        '[LIVEKIT][AUDIO] ❌ ATTACH FAILED:',
         error
       );
     }
   }
 
   /**
-   * Xóa remote audio
+   * ========================================
+   * REMOVE REMOTE AUDIO
+   * ========================================
    */
+
   private removeRemoteAudio(
     participantIdentity: string
   ) {
@@ -937,23 +1327,28 @@ class LiveKitService {
         participantIdentity
       );
 
-    if (element) {
-      try {
-        element.pause();
+    if (!element) {
+      return;
+    }
 
-        element.srcObject = null;
+    try {
+      element.pause();
 
+      element.srcObject = null;
+
+      if (
+        element.isConnected
+      ) {
         element.remove();
-      } catch {
-        // ignore
       }
-
-      this.remoteAudioElements.delete(
-        participantIdentity
+    } catch (error) {
+      console.warn(
+        '[LIVEKIT][AUDIO] Remove warning:',
+        error
       );
     }
 
-    this.remoteAudioTracks.delete(
+    this.remoteAudioElements.delete(
       participantIdentity
     );
 
@@ -964,16 +1359,24 @@ class LiveKitService {
   }
 
   /**
-   * Ngắt kết nối
+   * ========================================
+   * DISCONNECT
+   * ========================================
    */
+
   async disconnect() {
+    console.log(
+      '[LIVEKIT] ========================================'
+    );
+
     console.log(
       '[LIVEKIT] Disconnecting...'
     );
 
     /**
-     * Xóa remote audio.
+     * Xóa remote audio
      */
+
     for (const [
       participantIdentity,
       element,
@@ -983,7 +1386,11 @@ class LiveKitService {
 
         element.srcObject = null;
 
-        element.remove();
+        if (
+          element.isConnected
+        ) {
+          element.remove();
+        }
       } catch {
         // ignore
       }
@@ -996,11 +1403,10 @@ class LiveKitService {
 
     this.remoteAudioElements.clear();
 
-    this.remoteAudioTracks.clear();
-
     /**
-     * Disconnect room.
+     * Disconnect room
      */
+
     if (this.room) {
       try {
         await this.room.disconnect();
@@ -1016,21 +1422,27 @@ class LiveKitService {
 
     this.connected = false;
 
-    this.connecting = false;
-
-    this.microphoneEnabled = false;
+    this.microphoneEnabled =
+      false;
 
     console.log(
       '[LIVEKIT] ✅ Disconnected'
     );
+
+    console.log(
+      '[LIVEKIT] ========================================'
+    );
   }
 
   /**
-   * Cleanup toàn bộ service
+   * ========================================
+   * DESTROY
+   * ========================================
    */
+
   async destroy() {
     console.log(
-      '[LIVEKIT] Destroying...'
+      '[LIVEKIT] Destroying service...'
     );
 
     await this.disconnect();
