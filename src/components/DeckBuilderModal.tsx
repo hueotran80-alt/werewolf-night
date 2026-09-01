@@ -87,8 +87,26 @@ export const DeckBuilderModal: React.FC<Props> = ({
     });
   };
 
+  // Scale a preset deck so its total matches the room's current player count:
+  // only the plain VILLAGER count grows/shrinks, special roles stay as defined
+  // by the preset. This lets a "6-8 người" preset actually be used with 6, 7, or 8.
   const applyPreset = (presetDeck: DeckCardConfig[]) => {
-    setDeck(presetDeck);
+    const specialRoles = presetDeck.filter((d) => d.roleId !== 'VILLAGER');
+    const fixedTotal = specialRoles.reduce((sum, d) => sum + d.count, 0);
+    const villagerCount = playerCount - fixedTotal;
+
+    if (villagerCount < 0) {
+      // Not enough players even with 0 Villagers left — apply as-is and let
+      // the validation banner explain why it doesn't fit.
+      setDeck(presetDeck);
+      return;
+    }
+
+    const scaled: DeckCardConfig[] = specialRoles.map((d) => ({ ...d }));
+    if (villagerCount > 0) {
+      scaled.push({ roleId: 'VILLAGER', count: villagerCount });
+    }
+    setDeck(scaled);
   };
 
   const handleSave = () => {

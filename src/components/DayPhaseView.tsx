@@ -106,7 +106,7 @@ export const DayPhaseView: React.FC<Props> = ({
                 </span>
                 {room.settings.revealRoleOnDeath && v.roleName && (
                   <span className="font-mono text-[10px] px-2 py-0.5 rounded-md bg-rose-900/60 text-rose-200 border border-rose-700/50">
-                    Vai trò: {v.roleName}
+                    Vai trò:
                   </span>
                 )}
               </div>

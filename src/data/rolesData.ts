@@ -393,7 +393,7 @@ export const DECK_PRESETS: DeckPreset[] = [
     id: 'dark_fantasy_12_15',
     name: 'Đại Chiến 12-15 người (Dark Fantasy)',
     description: 'Đầy đủ tất cả các vai trò quyền năng: Kẻ Sát Nhân, Liễu, Già Làng, Sói Trưởng.',
-    minPlayers: 12,
+    minPlayers: 13,
     maxPlayers: 15,
     mode: 'THREE_TEAM',
     deck: [

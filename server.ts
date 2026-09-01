@@ -150,6 +150,37 @@ function shuffleArray<T>(array: T[]): T[] {
   return arr;
 }
 
+// Scale a preset deck so its total card count exactly matches the room's
+// current player count. Only the plain VILLAGER count is grown/shrunk;
+// all special role counts from the preset are kept as-is. This is what lets
+// a preset advertised as "6-8 người" actually be played with 6, 7 OR 8 people.
+function scaleDeckToPlayerCount(presetDeck: DeckCardConfig[], playerCount: number): DeckCardConfig[] {
+  const specialRoles = presetDeck.filter((d) => d.roleId !== 'VILLAGER');
+  const fixedTotal = specialRoles.reduce((sum, d) => sum + d.count, 0);
+  const villagerCount = playerCount - fixedTotal;
+
+  if (villagerCount < 0) {
+    // Player count is too low even with zero Villagers left (should not
+    // happen if DECK_PRESETS.minPlayers is configured correctly) — fall back
+    // to the raw preset and let validateDeck() surface a clear error.
+    return presetDeck;
+  }
+
+  const scaled: DeckCardConfig[] = specialRoles.map((d) => ({ ...d }));
+  if (villagerCount > 0) {
+    scaled.push({ roleId: 'VILLAGER', count: villagerCount });
+  }
+  return scaled;
+}
+
+// Pick the best matching preset for the current player count and scale it
+// (see scaleDeckToPlayerCount) so the deck is always immediately playable.
+function getAutoDeckForPlayerCount(playerCount: number): DeckCardConfig[] | null {
+  const preset = DECK_PRESETS.find((p) => p.minPlayers <= playerCount && p.maxPlayers >= playerCount);
+  if (!preset) return null;
+  return scaleDeckToPlayerCount(preset.deck, playerCount);
+}
+
 // Validate Deck configuration
 function validateDeck(deck: DeckCardConfig[], playerCount: number, mode: 'TWO_TEAM' | 'THREE_TEAM'): { valid: boolean; error?: string } {
   const totalCards = deck.reduce((sum, d) => sum + d.count, 0);
@@ -299,6 +330,11 @@ function startGame(room: RoomData) {
 function startNightPhase(room: RoomData) {
   if (!room.gameState) return;
 
+  // IMPORTANT: witchHasHeal / witchHasPoison / lastGuardedPlayerId must persist
+  // across the whole game (each potion is usable exactly ONCE per match), so we
+  // carry them over from the previous night instead of resetting every night.
+  const prevNightState = room.gameState.nightState;
+
   room.gameState.currentPhase = 'NIGHT';
   room.gameState.phaseDuration = 35; // 35s night duration
   room.gameState.phaseEndsAt = Date.now() + 35000;
@@ -308,8 +344,9 @@ function startNightPhase(room: RoomData) {
     stepTimeRemaining: 35,
     werewolfVotes: {},
     witchSaved: false,
-    witchHasHeal: true,
-    witchHasPoison: true,
+    witchHasHeal: prevNightState ? prevNightState.witchHasHeal : true,
+    witchHasPoison: prevNightState ? prevNightState.witchHasPoison : true,
+    lastGuardedPlayerId: prevNightState?.lastGuardedPlayerId,
     nightVictims: [],
   };
 
@@ -353,7 +390,15 @@ function simulateBotNightActions(room: RoomData) {
   const alivePlayers = room.players.filter((p) => p.isAlive);
   const aliveBots = alivePlayers.filter((p) => p.isBot);
 
-  aliveBots.forEach((bot) => {
+  // Process Werewolf-team bots first so other roles (e.g. Witch) can react
+  // to a known werewolf target instead of an undecided one.
+  const sortedBots = [...aliveBots].sort((a, b) => {
+    const aIsWolf = a.role ? ROLES_DATABASE[a.role].team === 'WEREWOLF' : false;
+    const bIsWolf = b.role ? ROLES_DATABASE[b.role].team === 'WEREWOLF' : false;
+    return aIsWolf === bIsWolf ? 0 : aIsWolf ? -1 : 1;
+  });
+
+  sortedBots.forEach((bot) => {
     const role = bot.role;
     if (!role) return;
 
@@ -384,6 +429,29 @@ function simulateBotNightActions(room: RoomData) {
       const targets = alivePlayers.filter((p) => p.id !== bot.id);
       if (targets.length > 0) {
         ns.lieuTarget = targets[Math.floor(Math.random() * targets.length)].id;
+      }
+    } else if (role === 'WITCH') {
+      // Bot Witch: decide whether to save the werewolves' victim, and whether to poison someone
+      if (ns.witchHasHeal && ns.werewolfTarget) {
+        // ~65% chance to use the Cứu Sinh potion when a victim is already known
+        if (Math.random() < 0.65) {
+          ns.witchSaved = true;
+          ns.witchHasHeal = false;
+        }
+      }
+
+      if (ns.witchHasPoison) {
+        // ~30% chance to use the Độc Dược potion on a random suspect (never on the werewolf victim already dying)
+        if (Math.random() < 0.3) {
+          const poisonTargets = alivePlayers.filter(
+            (p) => p.id !== bot.id && p.id !== ns.werewolfTarget
+          );
+          if (poisonTargets.length > 0) {
+            const poisoned = poisonTargets[Math.floor(Math.random() * poisonTargets.length)];
+            ns.witchPoisonTarget = poisoned.id;
+            ns.witchHasPoison = false;
+          }
+        }
       }
     }
   });
@@ -1325,9 +1393,9 @@ wss.on('connection', (ws: WebSocket, req) => {
 
           // Update deck card count to match players
           if (room.deck.length > 0) {
-            const preset = DECK_PRESETS.find((p) => p.minPlayers <= room.players.length && p.maxPlayers >= room.players.length);
-            if (preset) {
-              room.deck = preset.deck;
+            const autoDeck = getAutoDeckForPlayerCount(room.players.length);
+            if (autoDeck) {
+              room.deck = autoDeck;
             }
           }
 
@@ -1343,6 +1411,15 @@ wss.on('connection', (ws: WebSocket, req) => {
           const targetPlayerId = payload?.targetPlayerId;
           if (targetPlayerId && targetPlayerId !== playerId) {
             room.players = room.players.filter((p) => p.id !== targetPlayerId);
+
+            // Re-scale deck to the new player count so the room stays startable
+            if (room.deck.length > 0) {
+              const autoDeck = getAutoDeckForPlayerCount(room.players.length);
+              if (autoDeck) {
+                room.deck = autoDeck;
+              }
+            }
+
             broadcastRoom(roomId, 'ROOM_STATE');
           }
           break;
@@ -1371,6 +1448,15 @@ wss.on('connection', (ws: WebSocket, req) => {
           if (!room) return;
 
           room.players = room.players.filter((p) => p.id !== playerId);
+
+          // Re-scale deck to the new player count so the room stays startable
+          if (room.players.length > 0 && room.status === 'WAITING' && room.deck.length > 0) {
+            const autoDeck = getAutoDeckForPlayerCount(room.players.length);
+            if (autoDeck) {
+              room.deck = autoDeck;
+            }
+          }
+
           if (room.players.length === 0) {
             rooms.delete(roomId);
           } else if (room.hostPlayerId === playerId) {
@@ -1448,6 +1534,7 @@ app.post('/api/room/create', (req: Request, res: Response) => {
     code,
     hostPlayerId,
     players: [hostPlayer],
+    status: 'WAITING',
     settings: { ...DEFAULT_SETTINGS, ...settings },
     deck: defaultDeck,
     createdAt: Date.now(),
@@ -1516,9 +1603,9 @@ app.post('/api/room/join', (req: Request, res: Response) => {
   foundRoom.players.push(newPlayer);
 
   // Auto update deck to match player count if using preset
-  const preset = DECK_PRESETS.find((p) => p.minPlayers <= foundRoom!.players.length && p.maxPlayers >= foundRoom!.players.length);
-  if (preset) {
-    foundRoom.deck = preset.deck;
+  const autoDeck = getAutoDeckForPlayerCount(foundRoom.players.length);
+  if (autoDeck) {
+    foundRoom.deck = autoDeck;
   }
 
   broadcastRoom(foundRoom.id, 'ROOM_STATE');
