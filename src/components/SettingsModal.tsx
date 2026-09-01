@@ -1,8 +1,23 @@
 import React, { useState } from 'react';
 import { soundManager } from '../services/soundService';
+import { audioService } from '../services/audioService';
 import { useGame } from '../context/GameContext';
 import { testServerConnection } from '../lib/serverConfig';
-import { X, Volume2, VolumeX, Sparkles, Smartphone, Moon, Sun, Sliders, Cloud, Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import { loadTurnConfig, saveTurnConfig } from '../lib/audioSettings';
+import {
+  X,
+  Volume2,
+  VolumeX,
+  Music,
+  Sparkles,
+  Smartphone,
+  Sliders,
+  Cloud,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  Radio,
+} from 'lucide-react';
 
 interface Props {
   isOpen: boolean;
@@ -10,7 +25,11 @@ interface Props {
 }
 
 export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
-  const [isMuted, setIsMuted] = useState(soundManager.isMuted);
+  const [sfxMuted, setSfxMuted] = useState(soundManager.isMuted);
+  const [sfxVolume, setSfxVolume] = useState(Math.round(soundManager.volume * 100));
+  const [bgmMuted, setBgmMuted] = useState(audioService.isBgmMuted());
+  const [bgmVolume, setBgmVolume] = useState(Math.round(audioService.getBgmVolume() * 100));
+
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
   const [fastAnimation, setFastAnimation] = useState(false);
 
@@ -19,13 +38,47 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [testState, setTestState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
   const [testMessage, setTestMessage] = useState('');
 
+  const savedTurn = loadTurnConfig();
+  const [turnUrl, setTurnUrl] = useState(savedTurn?.urls || '');
+  const [turnUser, setTurnUser] = useState(savedTurn?.username || '');
+  const [turnCred, setTurnCred] = useState(savedTurn?.credential || '');
+  const [turnSaved, setTurnSaved] = useState(false);
+
   if (!isOpen) return null;
 
-  const toggleMute = () => {
+  // ============================================================
+  // ÂM THANH HIỆU ỨNG (SFX & tiếng sói hú)
+  // ============================================================
+  const toggleSfxMuted = () => {
     const newState = soundManager.toggleMute();
-    setIsMuted(newState);
+    audioService.setSfxMuted(newState);
+    setSfxMuted(newState);
+    if (!newState) soundManager.playClick();
   };
 
+  const handleSfxVolumeChange = (value: number) => {
+    setSfxVolume(value);
+    soundManager.setVolume(value / 100);
+    audioService.setSfxVolume(value / 100);
+  };
+
+  // ============================================================
+  // NHẠC NỀN (BGM)
+  // ============================================================
+  const toggleBgmMuted = () => {
+    const newState = !bgmMuted;
+    audioService.setBgmMuted(newState);
+    setBgmMuted(newState);
+  };
+
+  const handleBgmVolumeChange = (value: number) => {
+    setBgmVolume(value);
+    audioService.setBgmVolume(value / 100);
+  };
+
+  // ============================================================
+  // MÁY CHỦ TRUNG GIAN (Cloud relay - tín hiệu phòng/game)
+  // ============================================================
   const handleTestServer = async () => {
     if (!serverInput.trim()) return;
     setTestState('testing');
@@ -40,11 +93,33 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
     setTestMessage('Đã lưu! App sẽ kết nối lại tới máy chủ mới.');
   };
 
+  // ============================================================
+  // MÁY CHỦ TURN (bắt buộc để 2 máy NGHE ĐƯỢC nhau qua mạng 4G/Wifi khác nhau)
+  // ============================================================
+  const handleSaveTurn = () => {
+    if (turnUrl.trim()) {
+      saveTurnConfig({ urls: turnUrl.trim(), username: turnUser.trim(), credential: turnCred.trim() });
+    } else {
+      saveTurnConfig(null);
+    }
+    setTurnSaved(true);
+    setTimeout(() => setTurnSaved(false), 2500);
+  };
+
+  const handleClearTurn = () => {
+    setTurnUrl('');
+    setTurnUser('');
+    setTurnCred('');
+    saveTurnConfig(null);
+    setTurnSaved(true);
+    setTimeout(() => setTurnSaved(false), 2500);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-      <div className="w-full max-w-md bg-[#0B0F19] border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="w-full max-w-md bg-[#0B0F19] border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/70">
+        <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/70 shrink-0">
           <div className="flex items-center gap-2.5">
             <span className="p-2 rounded-xl bg-zinc-800 text-zinc-300">
               <Sliders className="w-4 h-4" />
@@ -62,7 +137,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
         </div>
 
         {/* Body */}
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 overflow-y-auto">
           {/* Cloud Relay Server */}
           <div className="p-3.5 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-2.5">
             <div className="flex items-center gap-3">
@@ -116,29 +191,136 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
             </div>
           </div>
 
-          {/* Sound Synthesizer */}
-          <div className="flex items-center justify-between p-3.5 rounded-2xl bg-zinc-900/60 border border-zinc-800">
+          {/* Máy chủ TURN - để 2 máy thực sự NGHE ĐƯỢC nhau */}
+          <div className="p-3.5 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-2.5">
             <div className="flex items-center gap-3">
-              {isMuted ? (
-                <VolumeX className="w-5 h-5 text-rose-400" />
-              ) : (
-                <Volume2 className="w-5 h-5 text-emerald-400" />
-              )}
+              <Radio className="w-5 h-5 text-amber-400" />
               <div>
-                <div className="text-xs font-bold text-white">Âm Thanh Hiệu Ứng (SFX & Howl)</div>
-                <div className="text-[10px] text-zinc-400">Tiếng hú sói, chuông sáng, búa bỏ phiếu</div>
+                <div className="text-xs font-bold text-white">Máy Chủ TURN (Voice Chat)</div>
+                <div className="text-[10px] text-zinc-400">
+                  Giúp giọng nói kết nối được khi 2 máy dùng mạng 4G/Wifi khác nhau. Để trống sẽ dùng TURN
+                  mặc định (miễn phí, chỉ nên dùng để test).
+                </div>
               </div>
             </div>
-            <button
-              onClick={toggleMute}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                !isMuted
-                  ? 'bg-emerald-950 text-emerald-400 border border-emerald-700/50'
-                  : 'bg-zinc-800 text-zinc-400'
-              }`}
-            >
-              {!isMuted ? 'BẬT' : 'TẮT'}
-            </button>
+            <input
+              type="text"
+              value={turnUrl}
+              onChange={(e) => setTurnUrl(e.target.value)}
+              placeholder="vd: turn:my-turn-server.com:3478"
+              className="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-700 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+              autoCapitalize="none"
+              autoCorrect="off"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="text"
+                value={turnUser}
+                onChange={(e) => setTurnUser(e.target.value)}
+                placeholder="Username"
+                className="px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-700 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                autoCapitalize="none"
+                autoCorrect="off"
+              />
+              <input
+                type="password"
+                value={turnCred}
+                onChange={(e) => setTurnCred(e.target.value)}
+                placeholder="Credential"
+                className="px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-700 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+              />
+            </div>
+            {turnSaved && (
+              <div className="flex items-center gap-1.5 text-[10px] text-emerald-400">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Đã lưu! Vào lại phòng để áp dụng TURN mới.</span>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={handleClearTurn}
+                className="flex-1 py-2 rounded-xl text-[11px] font-bold bg-zinc-800 hover:bg-zinc-700 text-white transition"
+              >
+                Dùng mặc định
+              </button>
+              <button
+                onClick={handleSaveTurn}
+                disabled={!turnUrl.trim()}
+                className="flex-1 py-2 rounded-xl text-[11px] font-bold bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-700/50 transition disabled:opacity-50"
+              >
+                Lưu TURN
+              </button>
+            </div>
+          </div>
+
+          {/* Nhạc Nền (BGM) */}
+          <div className="p-3.5 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Music className={`w-5 h-5 ${bgmMuted ? 'text-rose-400' : 'text-cyan-400'}`} />
+                <div>
+                  <div className="text-xs font-bold text-white">Nhạc Nền</div>
+                  <div className="text-[10px] text-zinc-400">Nhạc nền phát ở màn hình chính</div>
+                </div>
+              </div>
+              <button
+                onClick={toggleBgmMuted}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                  !bgmMuted
+                    ? 'bg-cyan-950 text-cyan-400 border border-cyan-700/50'
+                    : 'bg-zinc-800 text-zinc-400'
+                }`}
+              >
+                {!bgmMuted ? 'BẬT' : 'TẮT'}
+              </button>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={bgmVolume}
+              disabled={bgmMuted}
+              onChange={(e) => handleBgmVolumeChange(Number(e.target.value))}
+              className="w-full accent-cyan-500 disabled:opacity-40"
+            />
+          </div>
+
+          {/* Âm Thanh Hiệu Ứng (SFX + tiếng sói hú) */}
+          <div className="p-3.5 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {sfxMuted ? (
+                  <VolumeX className="w-5 h-5 text-rose-400" />
+                ) : (
+                  <Volume2 className="w-5 h-5 text-emerald-400" />
+                )}
+                <div>
+                  <div className="text-xs font-bold text-white">Âm Thanh Hiệu Ứng</div>
+                  <div className="text-[10px] text-zinc-400">
+                    Tiếng sói hú, chuông sáng, búa bỏ phiếu, tiếng bấm nút
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={toggleSfxMuted}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                  !sfxMuted
+                    ? 'bg-emerald-950 text-emerald-400 border border-emerald-700/50'
+                    : 'bg-zinc-800 text-zinc-400'
+                }`}
+              >
+                {!sfxMuted ? 'BẬT' : 'TẮT'}
+              </button>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={sfxVolume}
+              disabled={sfxMuted}
+              onChange={(e) => handleSfxVolumeChange(Number(e.target.value))}
+              className="w-full accent-emerald-500 disabled:opacity-40"
+            />
           </div>
 
           {/* Haptic Vibration */}
@@ -185,7 +367,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-zinc-800 bg-zinc-950/80 flex justify-end">
+        <div className="p-4 border-t border-zinc-800 bg-zinc-950/80 flex justify-end shrink-0">
           <button
             onClick={onClose}
             className="w-full py-2.5 rounded-xl text-xs font-bold bg-zinc-800 hover:bg-zinc-700 text-white transition"

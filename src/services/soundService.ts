@@ -3,15 +3,34 @@
 // Generates realistic dark fantasy procedural audio with 0 external asset dependency
 // ============================================================================
 
+import { loadAudioSettings, saveAudioSettings } from '../lib/audioSettings';
+
 class SoundService {
   private ctx: AudioContext | null = null;
   public isMuted: boolean = false;
   public bgmMuted: boolean = false;
+  // Hệ số âm lượng cho toàn bộ hiệu ứng âm thanh tổng hợp (0..1), điều chỉnh
+  // được từ màn hình Cài Đặt (thanh trượt "Âm lượng hiệu ứng").
+  public volume: number = 0.7;
   private bgmOsc: OscillatorNode | null = null;
   private bgmGain: GainNode | null = null;
 
   constructor() {
-    // AudioContext will be initialized on first user interaction
+    // AudioContext will be initialized on first user interaction.
+    // Khôi phục trạng thái tắt/bật & âm lượng đã lưu từ lần chơi trước.
+    const saved = loadAudioSettings();
+    this.isMuted = saved.sfxMuted;
+    this.volume = saved.sfxVolume;
+  }
+
+  private persist() {
+    const saved = loadAudioSettings();
+    saveAudioSettings({ ...saved, sfxMuted: this.isMuted, sfxVolume: this.volume });
+  }
+
+  public setVolume(vol: number) {
+    this.volume = Math.max(0, Math.min(1, vol));
+    this.persist();
   }
 
   private initContext() {
@@ -30,10 +49,39 @@ class SoundService {
     }
   }
 
+  // Play a short, subtle "click" sound - dùng cho mọi thao tác bấm nút trong app
+  public playClick() {
+    try {
+      if (this.isMuted || this.volume <= 0) return;
+      this.initContext();
+      if (!this.ctx) return;
+
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(950, now);
+      osc.frequency.exponentialRampToValueAtTime(500, now + 0.05);
+
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.12 * this.volume, now + 0.006);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.07);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.08);
+    } catch (err) {
+      // Ignore
+    }
+  }
+
   // Play a procedural dark Wolf Howl sound
   public playWolfHowl() {
     try {
-      if (this.isMuted) return;
+      if (this.isMuted || this.volume <= 0) return;
       this.initContext();
       if (!this.ctx) return;
 
@@ -55,8 +103,8 @@ class SoundService {
       osc.frequency.exponentialRampToValueAtTime(160, now + 3.2);
 
       gain.gain.setValueAtTime(0.001, now);
-      gain.gain.exponentialRampToValueAtTime(0.35, now + 0.6);
-      gain.gain.exponentialRampToValueAtTime(0.3, now + 2.0);
+      gain.gain.exponentialRampToValueAtTime(0.35 * this.volume, now + 0.6);
+      gain.gain.exponentialRampToValueAtTime(0.3 * this.volume, now + 2.0);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 3.2);
 
       osc.connect(filter);
@@ -73,7 +121,7 @@ class SoundService {
   // Play Morning Church / Village Bell
   public playMorningBell() {
     try {
-      if (this.isMuted) return;
+      if (this.isMuted || this.volume <= 0) return;
       this.initContext();
       if (!this.ctx) return;
 
@@ -88,7 +136,7 @@ class SoundService {
         osc.type = 'sine';
         osc.frequency.setValueAtTime(freq * (1 + idx * 0.01), now);
 
-        const amp = 0.2 / (idx + 1);
+        const amp = (0.2 / (idx + 1)) * this.volume;
         gain.gain.setValueAtTime(amp, now);
         gain.gain.exponentialRampToValueAtTime(0.0001, now + 2.5);
 
@@ -106,7 +154,7 @@ class SoundService {
   // Play Courtroom Gavel Strike for Voting
   public playGavelStrike() {
     try {
-      if (this.isMuted) return;
+      if (this.isMuted || this.volume <= 0) return;
       this.initContext();
       if (!this.ctx) return;
 
@@ -118,7 +166,7 @@ class SoundService {
       osc.frequency.setValueAtTime(120, now);
       osc.frequency.exponentialRampToValueAtTime(40, now + 0.25);
 
-      gain.gain.setValueAtTime(0.5, now);
+      gain.gain.setValueAtTime(0.5 * this.volume, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
 
       osc.connect(gain);
@@ -134,7 +182,7 @@ class SoundService {
   // Play Card Flip Sound
   public playCardFlip() {
     try {
-      if (this.isMuted) return;
+      if (this.isMuted || this.volume <= 0) return;
       this.initContext();
       if (!this.ctx) return;
 
@@ -146,7 +194,7 @@ class SoundService {
       osc.frequency.setValueAtTime(400, now);
       osc.frequency.exponentialRampToValueAtTime(800, now + 0.12);
 
-      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.setValueAtTime(0.2 * this.volume, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
 
       osc.connect(gain);
@@ -162,7 +210,7 @@ class SoundService {
   // Play Victory Fanfare
   public playVictory() {
     try {
-      if (this.isMuted) return;
+      if (this.isMuted || this.volume <= 0) return;
       this.initContext();
       if (!this.ctx) return;
 
@@ -178,7 +226,7 @@ class SoundService {
         osc.frequency.setValueAtTime(freq, now + i * 0.12);
 
         gain.gain.setValueAtTime(0.001, now + i * 0.12);
-        gain.gain.exponentialRampToValueAtTime(0.25, now + i * 0.12 + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.25 * this.volume, now + i * 0.12 + 0.04);
         gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 1.2);
 
         osc.connect(gain);
@@ -195,7 +243,7 @@ class SoundService {
   // Play Death Toll / Elimination Sound
   public playDeathToll() {
     try {
-      if (this.isMuted) return;
+      if (this.isMuted || this.volume <= 0) return;
       this.initContext();
       if (!this.ctx) return;
 
@@ -207,7 +255,7 @@ class SoundService {
       osc.frequency.setValueAtTime(110, now);
       osc.frequency.exponentialRampToValueAtTime(45, now + 1.5);
 
-      gain.gain.setValueAtTime(0.4, now);
+      gain.gain.setValueAtTime(0.4 * this.volume, now);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.8);
 
       osc.connect(gain);
@@ -262,6 +310,7 @@ class SoundService {
     if (this.isMuted) {
       this.stopAmbientBgm();
     }
+    this.persist();
     return this.isMuted;
   }
 }

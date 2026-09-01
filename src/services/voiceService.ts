@@ -17,10 +17,40 @@ export type VoiceStatusListener = (status: {
 }) => void;
 
 // Danh sách máy chủ ICE dùng để 2 thiết bị "tìm đường" tới nhau qua NAT/router
-// của từng mạng khác nhau. STUN công cộng của Google giúp trong đa số trường
-// hợp; với các mạng doanh nghiệp/di động khắt khe hơn, nên khai báo thêm máy
-// chủ TURN riêng (xem hướng dẫn HUONG_DAN_TRIEN_KHAI.md) bằng cách lưu JSON
-// vào localStorage key "werewolf_turn_config".
+// của từng mạng khác nhau. STUN công cộng của Google giúp 2 máy tìm ĐỊA CHỈ
+// công khai của nhau, nhưng KHÔNG đủ để nói chuyện khi 1 trong 2 (hoặc cả 2)
+// đang dùng mạng 4G/5G hay Wifi có NAT đối xứng (rất phổ biến ở mạng di động
+// Việt Nam) - trường hợp này bắt buộc phải có máy chủ TURN để "tiếp âm" gói
+// tin. Đây chính là lý do phổ biến nhất khiến 2 máy "thấy mic hoạt động"
+// (đèn xanh, thanh âm lượng nhảy) nhưng không hề nghe thấy nhau: kết nối
+// WebRTC ICE không bao giờ thực sự khớp nối được.
+//
+// Mặc định bên dưới dùng máy chủ TURN công cộng miễn phí (Open Relay Project,
+// metered.ca) để voice chat hoạt động ngay cả khi bạn chưa tự cấu hình gì -
+// tuy nhiên nó có giới hạn băng thông/độ ổn định, chỉ phù hợp để TEST hoặc
+// nhóm bạn nhỏ chơi tạm. Khi triển khai thật cho nhiều người dùng, hãy tự tạo
+// TURN server riêng (Coturn tự host, hoặc tài khoản Metered.ca/Twilio/Cloudflare
+// Calls) và điền vào màn hình Cài Đặt trong app - giá trị đó sẽ lưu vào
+// localStorage key "werewolf_turn_config" và được ưu tiên dùng thay cho TURN
+// mặc định.
+const DEFAULT_TURN_SERVERS: RTCIceServer[] = [
+  {
+    urls: 'turn:openrelay.metered.ca:80',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+];
+
 function getIceServers(): RTCIceServer[] {
   const servers: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -30,11 +60,17 @@ function getIceServers(): RTCIceServer[] {
     const raw = typeof window !== 'undefined' ? window.localStorage.getItem('werewolf_turn_config') : null;
     if (raw) {
       const turn = JSON.parse(raw);
-      if (turn?.urls) servers.push(turn);
+      if (turn?.urls) {
+        servers.push(turn);
+        // Vẫn giữ TURN mặc định làm phương án dự phòng nếu TURN tùy chỉnh lỗi.
+        servers.push(...DEFAULT_TURN_SERVERS);
+        return servers;
+      }
     }
   } catch {
     // ignore malformed TURN config
   }
+  servers.push(...DEFAULT_TURN_SERVERS);
   return servers;
 }
 
@@ -55,6 +91,13 @@ class VoiceService {
   private listeners: Set<VoiceStatusListener> = new Set();
   private speakingThreshold = 12; // Audio level threshold to trigger speaking state
   private onSpeakingChangeCallback?: (isSpeaking: boolean) => void;
+  private onMicErrorCallback?: (message: string) => void;
+
+  /** GameContext/VoiceCallBar đăng ký hàm này để hiện thông báo lỗi rõ ràng
+   *  cho người dùng khi không xin được quyền micro, thay vì im lặng thất bại. */
+  public setOnMicError(cb: (message: string) => void) {
+    this.onMicErrorCallback = cb;
+  }
 
   // --- WebRTC mesh state ---
   private localPlayerId: string | null = null;
@@ -305,8 +348,24 @@ class VoiceService {
       });
 
       return true;
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Microphone access not granted or not available:', err);
+
+      // Phân loại lỗi để đưa ra hướng dẫn cụ thể thay vì chỉ thất bại âm thầm
+      // (đây chính là nguyên nhân người dùng thấy nút mic "không phản ứng gì"
+      // mà không hiểu vì sao).
+      let message = 'Không thể truy cập micro. Vui lòng kiểm tra lại quyền ứng dụng.';
+      const name = err?.name || '';
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') {
+        message =
+          'Bạn đã từ chối quyền Micro. Vào Cài đặt điện thoại → Ứng dụng → Ma Sói: Đêm Lừa Dối → Quyền → bật "Micro", rồi mở lại app.';
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        message = 'Không tìm thấy micro trên thiết bị này.';
+      } else if (name === 'NotReadableError' || name === 'TrackStartError') {
+        message = 'Micro đang được ứng dụng khác sử dụng. Hãy đóng ứng dụng đó rồi thử lại.';
+      }
+
+      if (this.onMicErrorCallback) this.onMicErrorCallback(message);
       return false;
     }
   }

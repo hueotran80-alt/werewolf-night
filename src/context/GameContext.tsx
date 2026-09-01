@@ -387,6 +387,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     });
 
+    // Hiện lỗi rõ ràng cho người dùng khi không xin được quyền Micro
+    // (ví dụ trên Android bị từ chối quyền RECORD_AUDIO), thay vì để nút
+    // "Bật Mic" không phản ứng gì mà không rõ lý do.
+    voiceService.setOnMicError((message) => {
+      setError(message);
+    });
+
     return () => {
       unsub();
     };

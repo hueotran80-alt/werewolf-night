@@ -38,4 +38,16 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- BẮT BUỘC để WebView có thể xin quyền micro (getUserMedia) và truyền
+         giọng nói qua WebRTC. Thiếu 2 dòng này thì hộp thoại "Cho phép truy
+         cập Micro" của Capacitor WebView sẽ luôn tự động bị từ chối ngầm,
+         dù người dùng đã bấm "Cho phép". -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- Giúp WebRTC hoạt động ổn định hơn khi mạng chuyển đổi Wifi/4G -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.BLUETOOTH" />
 </manifest>
