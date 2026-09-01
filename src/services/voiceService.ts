@@ -1,13 +1,7 @@
 // ============================================================================
 // WEREWOLF: NIGHT OF DECEPTION - Voice Call & Audio Service
 // ----------------------------------------------------------------------------
-// Truyền âm thanh thoại thật giữa các người chơi bằng WebRTC (peer-to-peer),
-// còn việc "làm quen" ban đầu (signaling: gửi offer/answer/ICE candidate)
-// được chuyển tiếp qua CHÍNH máy chủ trung gian (cloud relay) - xem thông
-// điệp WS loại 'VOICE_SIGNAL' trong GameContext/server.ts. Nhờ máy chủ cloud
-// làm trung gian "giới thiệu", 2 người chơi ở 2 mạng Internet khác nhau vẫn
-// có thể mở được kết nối thoại trực tiếp (hoặc qua TURN nếu mạng quá khắt khe).
-// ============================================================================
+
 
 export type VoiceStatusListener = (status: {
   isMuted: boolean;
@@ -16,38 +10,25 @@ export type VoiceStatusListener = (status: {
   audioLevel: number;
 }) => void;
 
-// Danh sách máy chủ ICE dùng để 2 thiết bị "tìm đường" tới nhau qua NAT/router
-// của từng mạng khác nhau. STUN công cộng của Google giúp 2 máy tìm ĐỊA CHỈ
-// công khai của nhau, nhưng KHÔNG đủ để nói chuyện khi 1 trong 2 (hoặc cả 2)
-// đang dùng mạng 4G/5G hay Wifi có NAT đối xứng (rất phổ biến ở mạng di động
-// Việt Nam) - trường hợp này bắt buộc phải có máy chủ TURN để "tiếp âm" gói
-// tin. Đây chính là lý do phổ biến nhất khiến 2 máy "thấy mic hoạt động"
-// (đèn xanh, thanh âm lượng nhảy) nhưng không hề nghe thấy nhau: kết nối
-// WebRTC ICE không bao giờ thực sự khớp nối được.
-//
-// Mặc định bên dưới dùng máy chủ TURN công cộng miễn phí (Open Relay Project,
-// metered.ca) để voice chat hoạt động ngay cả khi bạn chưa tự cấu hình gì -
-// tuy nhiên nó có giới hạn băng thông/độ ổn định, chỉ phù hợp để TEST hoặc
-// nhóm bạn nhỏ chơi tạm. Khi triển khai thật cho nhiều người dùng, hãy tự tạo
-// TURN server riêng (Coturn tự host, hoặc tài khoản Metered.ca/Twilio/Cloudflare
-// Calls) và điền vào màn hình Cài Đặt trong app - giá trị đó sẽ lưu vào
-// localStorage key "werewolf_turn_config" và được ưu tiên dùng thay cho TURN
-// mặc định.
+
 const DEFAULT_TURN_SERVERS: RTCIceServer[] = [
   {
-    urls: 'turn:openrelay.metered.ca:80',
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
-  {
-    urls: 'turn:openrelay.metered.ca:443',
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
-  {
-    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
+    urls: "stun:stun.relay.metered.ca:80",
+          },
+          {
+            urls: "turn:global.relay.metered.ca:80",
+            username: "8b6f72614578bbef2c456059",
+            credential: "/GLSMstQ96xt4dPM",
+          },
+          {
+            urls: "turn:global.relay.metered.ca:80?transport=tcp",
+            username: "8b6f72614578bbef2c456059",
+            credential: "/GLSMstQ96xt4dPM",
+          },
+          {
+            urls: "turn:global.relay.metered.ca:443",
+            username: "8b6f72614578bbef2c456059",
+            credential: "/GLSMstQ96xt4dPM",
   },
 ];
 

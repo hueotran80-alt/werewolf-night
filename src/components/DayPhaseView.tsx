@@ -103,7 +103,7 @@ export const DayPhaseView: React.FC<Props> = ({
                 className="p-3 rounded-2xl bg-rose-950/30 border border-rose-800/40 text-xs text-rose-300 flex items-center justify-between"
               >
                 <span>
-                  💀 <strong>{v.playerName}</strong> đã ngã xuống trong đêm 
+                  💀 <strong>{v.playerName}</strong> đã ngã xuống trong đêm
                 </span>
                 {room.settings.revealRoleOnDeath && v.roleName && (
                   <span className="font-mono text-[10px] px-2 py-0.5 rounded-md bg-rose-900/60 text-rose-200 border border-rose-700/50">

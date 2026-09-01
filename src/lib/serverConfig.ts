@@ -1,21 +1,6 @@
 // ============================================================================
 // WEREWOLF: NIGHT OF DECEPTION - Cloud Server Configuration
 // ----------------------------------------------------------------------------
-// Cho phép app (web HOẶC Android build bằng Capacitor) kết nối tới MỘT máy chủ
-// trung gian (cloud relay) duy nhất. Nhờ vậy, người chơi ở các mạng Internet
-// khác nhau (nhà mạng khác nhau, 4G/5G, wifi khác nhau...) đều có thể vào
-// chung một phòng, vì mọi dữ liệu đều đi qua máy chủ cloud này thay vì kết
-// nối trực tiếp máy-tới-máy.
-//
-// Thứ tự ưu tiên khi xác định địa chỉ máy chủ:
-//   1. Người dùng tự nhập trong màn hình Cài Đặt (lưu localStorage) -> áp dụng
-//      ngay cả khi mở app dạng web lẫn khi đóng gói thành APK Android.
-//   2. Biến môi trường build-time VITE_SERVER_URL (đặt trong file .env trước
-//      khi chạy `npm run build`) -> dùng để "đóng đinh" sẵn server cho bản APK
-//      phát hành, người chơi không cần tự nhập địa chỉ.
-//   3. Nếu không có gì cả và đang chạy trên trình duyệt (bản web/dev) -> dùng
-//      luôn địa chỉ (origin) đang load trang, giữ nguyên hành vi cũ khi tự host.
-// ============================================================================
 
 const STORAGE_KEY = 'werewolf_cloud_server';
 
