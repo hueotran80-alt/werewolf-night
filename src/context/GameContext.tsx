@@ -102,6 +102,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isMyDeafened, setIsMyDeafened] = useState<boolean>(false);
   const [myAudioLevel, setMyAudioLevel] = useState<number>(0);
 
+  // Ref theo dõi thời điểm gửi chat gần nhất (Cooldown 4 giây & chống double-submit)
+  const lastChatTimeRef = useRef<number>(0);
+
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<any>(null);
   const [cloudServerAddress, setCloudServerAddressState] = useState<string>(() => getSavedServerRaw());
@@ -217,103 +220,108 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }
               break;
 
-          case 'PHASE_CHANGED':
-            if (data.payload?.newPhase) {
-              if (data.payload.newPhase === 'NIGHT') {
-                soundManager.playWolfHowl();
-              } else if (data.payload.newPhase === 'DAY_ANNOUNCEMENT' || data.payload.newPhase === 'DAY_DISCUSSION') {
-                soundManager.playMorningBell();
-              } else if (data.payload.newPhase === 'VOTING') {
-                soundManager.playGavelStrike();
-              } else if (data.payload.newPhase === 'GAME_OVER') {
-                soundManager.playVictory();
+            case 'PHASE_CHANGED':
+              if (data.payload?.newPhase) {
+                if (data.payload.newPhase === 'NIGHT') {
+                  soundManager.playWolfHowl();
+                } else if (data.payload.newPhase === 'DAY_ANNOUNCEMENT' || data.payload.newPhase === 'DAY_DISCUSSION') {
+                  soundManager.playMorningBell();
+                } else if (data.payload.newPhase === 'VOTING') {
+                  soundManager.playGavelStrike();
+                } else if (data.payload.newPhase === 'GAME_OVER') {
+                  soundManager.playVictory();
+                }
               }
-            }
-            if (data.payload?.room) {
-              setCurrentRoom(data.payload.room);
-            }
-            break;
+              if (data.payload?.room) {
+                setCurrentRoom(data.payload.room);
+              }
+              break;
 
-          case 'ROLE_ASSIGNED':
-            soundManager.playCardFlip();
-            if (data.payload?.room) {
-              setCurrentRoom(data.payload.room);
-            }
-            break;
+            case 'ROLE_ASSIGNED':
+              soundManager.playCardFlip();
+              if (data.payload?.room) {
+                setCurrentRoom(data.payload.room);
+              }
+              break;
 
-          case 'ACTION_RESULT':
-            if (data.payload?.actionType === 'SEER_CHECK') {
-              setSeerResultPopup({
-                targetName: data.payload.targetName || 'Mục tiêu',
-                isWerewolf: !!data.payload.isWerewolf,
-              });
-            }
-            break;
+            case 'ACTION_RESULT':
+              if (data.payload?.actionType === 'SEER_CHECK') {
+                setSeerResultPopup({
+                  targetName: data.payload.targetName || 'Mục tiêu',
+                  isWerewolf: !!data.payload.isWerewolf,
+                });
+              }
+              break;
 
-          case 'NEW_CHAT':
-            if (data.payload?.message) {
-              setChatMessages((prev) => [...prev.slice(-99), data.payload.message]);
-            }
-            break;
+            case 'NEW_CHAT':
+              if (data.payload?.message) {
+                const newMsg = data.payload.message;
+                setChatMessages((prev) => {
+                  // SỬA LỖI DỘI TIN NHẮN: Kiểm tra nếu tin nhắn đã tồn tại trong danh sách thì bỏ qua
+                  if (newMsg.id && prev.some((m) => m.id === newMsg.id)) {
+                    return prev;
+                  }
+                  return [...prev.slice(-99), newMsg];
+                });
+              }
+              break;
 
-          case 'HOST_TRANSFER_REQUEST':
-            if (data.payload?.request) {
-              setActiveTransferRequest(data.payload.request);
-            }
-            break;
+            case 'HOST_TRANSFER_REQUEST':
+              if (data.payload?.request) {
+                setActiveTransferRequest(data.payload.request);
+              }
+              break;
 
-          case 'VOICE_STATUS_UPDATE':
-            if (data.payload?.voiceStates) {
-              setVoiceStates(data.payload.voiceStates);
-            }
-            break;
+            case 'VOICE_STATUS_UPDATE':
+              if (data.payload?.voiceStates) {
+                setVoiceStates(data.payload.voiceStates);
+              }
+              break;
 
-          case 'VOICE_FORCE_MUTE_ALL':
-            voiceService.forceMute();
-            break;
+            case 'VOICE_FORCE_MUTE_ALL':
+              voiceService.forceMute();
+              break;
 
-          case 'VOICE_SIGNAL':
-            if (data.payload?.fromPlayerId) {
-              voiceService.handleRemoteSignal(data.payload.fromPlayerId, data.payload.signal);
-            }
-            break;
+            case 'VOICE_SIGNAL':
+              if (data.payload?.fromPlayerId) {
+                voiceService.handleRemoteSignal(data.payload.fromPlayerId, data.payload.signal);
+              }
+              break;
 
-          case 'ERROR':
-            setError(data.payload?.message || 'Có lỗi xảy ra từ máy chủ.');
-            break;
+            case 'ERROR':
+              setError(data.payload?.message || 'Có lỗi xảy ra từ máy chủ.');
+              break;
 
-          default:
-            break;
+            default:
+              break;
+          }
+        } catch (err) {
+          console.error('WS Parse error', err);
         }
-      } catch (err) {
-        console.error('WS Parse error', err);
-      }
-    };
+      };
 
-    ws.onclose = () => {
-      setIsConnected(false);
+      ws.onclose = () => {
+        setIsConnected(false);
+        setIsConnecting(false);
+        socketRef.current = null;
+        // Reconnect after 3s
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connectSocket();
+        }, 3000);
+      };
+
+      ws.onerror = () => {
+        setIsConnected(false);
+        setIsConnecting(false);
+      };
+    } catch (err) {
+      console.warn('Failed to establish WebSocket connection:', err);
       setIsConnecting(false);
-      socketRef.current = null;
-      // Reconnect after 3s
-      reconnectTimeoutRef.current = setTimeout(() => {
-        connectSocket();
-      }, 3000);
-    };
-
-    ws.onerror = () => {
       setIsConnected(false);
-      setIsConnecting(false);
-    };
-  } catch (err) {
-    console.warn('Failed to establish WebSocket connection:', err);
-    setIsConnecting(false);
-    setIsConnected(false);
-  }
-}, [playerId]);
+    }
+  }, [playerId]);
 
-  // Đổi địa chỉ máy chủ trung gian (cloud relay) đang dùng. Vì phòng chơi &
-  // session cũ chỉ tồn tại trên máy chủ CŨ, ta phải ngắt kết nối hiện tại,
-  // xoá session đã lưu rồi kết nối lại tới máy chủ MỚI từ đầu.
+  // Đổi địa chỉ máy chủ trung gian (cloud relay) đang dùng.
   const setCloudServerAddress = useCallback(
     (raw: string) => {
       const parsed = parseServerInput(raw);
@@ -340,16 +348,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setChatMessages([]);
       setIsConnected(false);
 
-      // Kết nối ngay tới máy chủ mới (không chờ effect, vì playerId có thể
-      // đã sẵn là null từ trước nên effect phụ thuộc [connectSocket] sẽ
-      // không tự chạy lại trong trường hợp đó).
       setTimeout(() => connectSocket(), 50);
     },
     [connectSocket]
   );
 
-  // Cấp cho voiceService "đường dây" gửi tín hiệu WebRTC (offer/answer/ICE)
-  // qua chính máy chủ trung gian cloud (WebSocket), và cập nhật ID của mình.
+  // Cấp cho voiceService "đường dây" gửi tín hiệu WebRTC
   useEffect(() => {
     voiceService.setSignalSender((targetPlayerId, signal) => {
       sendWs('VOICE_SIGNAL', { targetPlayerId, signal });
@@ -357,8 +361,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     voiceService.setLocalPlayerId(playerId);
   }, [sendWs, playerId]);
 
-  // Mỗi khi danh sách người chơi thật (không phải bot) trong phòng thay đổi,
-  // đồng bộ lại "lưới" kết nối thoại WebRTC peer-to-peer tương ứng.
+  // Đồng bộ lại WebRTC peer-to-peer
   useEffect(() => {
     if (!currentRoom || !playerId) {
       voiceService.teardownAllPeers();
@@ -387,9 +390,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     });
 
-    // Hiện lỗi rõ ràng cho người dùng khi không xin được quyền Micro
-    // (ví dụ trên Android bị từ chối quyền RECORD_AUDIO), thay vì để nút
-    // "Bật Mic" không phản ứng gì mà không rõ lý do.
     voiceService.setOnMicError((message) => {
       setError(message);
     });
@@ -571,9 +571,22 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     sendWs('GAME_START_REQUEST');
   };
 
+  // HÀM GỬI CHAT - ĐÃ THÊM BẢO VỆ COOLDOWN 4 GIÂY & CHỐNG GỬI ĐÚP
   const sendChat = (text: string, channel: 'LOBBY' | 'DAY_PUBLIC' | 'GHOST_PRIVATE' | 'WOLF_PRIVATE' = 'LOBBY') => {
-    if (!text.trim()) return;
-    sendWs('CHAT_MESSAGE', { text: text.trim(), channel });
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    const now = Date.now();
+    const COOLDOWN_MS = 4000; // 4 giây
+
+    if (now - lastChatTimeRef.current < COOLDOWN_MS) {
+      const remaining = Math.ceil((COOLDOWN_MS - (now - lastChatTimeRef.current)) / 1000);
+      setError(`⏱️ Vui lòng chờ ${remaining} giây trước khi gửi tin nhắn tiếp theo.`);
+      return;
+    }
+
+    lastChatTimeRef.current = now;
+    sendWs('CHAT_MESSAGE', { text: trimmed, channel });
   };
 
   return (

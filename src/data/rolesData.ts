@@ -1,5 +1,19 @@
 import { RoleDefinition, RoleId, DeckPreset } from '../types';
 
+// ----------------------------------------------------------------------------
+// Player-count ranges allowed per game mode.
+//   - TWO_TEAM (2 Phe: Dân vs Sói)   -> 6 đến 10 người, KHÔNG được chọn vai Phe Độc Lập (NEUTRAL).
+//   - THREE_TEAM (3 Phe: có Độc Lập) -> 9 đến 15 người, được chọn vai Phe Độc Lập.
+// Khoảng 9-10 người chơi là vùng giao nhau: cả 2 chế độ đều hợp lệ, người chơi
+// (Quản Trò) có thể chọn 1 trong 2.
+// Dùng chung constant này ở cả client (DeckBuilderModal) và server (server.ts)
+// để tránh 2 nơi validate lệch nhau.
+// ----------------------------------------------------------------------------
+export const MODE_PLAYER_RANGE: Record<'TWO_TEAM' | 'THREE_TEAM', { min: number; max: number }> = {
+  TWO_TEAM: { min: 6, max: 10 },
+  THREE_TEAM: { min: 9, max: 15 },
+};
+
 export const ROLES_DATABASE: Record<RoleId, RoleDefinition> = {
   VILLAGER: {
     id: 'VILLAGER',
@@ -352,7 +366,7 @@ export const DECK_PRESETS: DeckPreset[] = [
       { roleId: 'SEER', count: 1 },
       { roleId: 'BODYGUARD', count: 1 },
       { roleId: 'WITCH', count: 1 },
-      { roleId: 'VILLAGER', count: 2 },
+      { roleId: 'VILLAGER', count: 1 },
     ],
   },
   {
@@ -370,7 +384,7 @@ export const DECK_PRESETS: DeckPreset[] = [
       { roleId: 'WITCH', count: 1 },
       { roleId: 'HUNTER', count: 1 },
       { roleId: 'JESTER', count: 1 },
-      { roleId: 'VILLAGER', count: 2 },
+      { roleId: 'VILLAGER', count: 1 },
     ],
   },
   {
@@ -398,7 +412,7 @@ export const DECK_PRESETS: DeckPreset[] = [
     mode: 'THREE_TEAM',
     deck: [
       { roleId: 'ALPHA_WOLF', count: 1 },
-      { roleId: 'WEREWOLF', count: 2 },
+      { roleId: 'WEREWOLF', count: 1 },
       { roleId: 'WOLF_PUP', count: 1 },
       { roleId: 'SEER', count: 1 },
       { roleId: 'BODYGUARD', count: 1 },

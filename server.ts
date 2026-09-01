@@ -19,7 +19,7 @@ import {
   WsMessagePayload,
   HostTransferRequest,
 } from './src/types';
-import { ROLES_DATABASE, DECK_PRESETS } from './src/data/rolesData';
+import { ROLES_DATABASE, DECK_PRESETS, MODE_PLAYER_RANGE } from './src/data/rolesData';
 
 // Hầu hết nền tảng cloud (Render, Railway, Fly.io, Heroku...) tự cấp một
 // biến môi trường PORT và yêu cầu server lắng nghe đúng cổng đó. Nếu không
@@ -208,8 +208,13 @@ function validateDeck(deck: DeckCardConfig[], playerCount: number, mode: 'TWO_TE
   if (wolfCount >= villageCount + neutralCount) {
     return { valid: false, error: 'Số lượng Ma Sói ban đầu phải nhỏ hơn tổng số dân và phe trung lập.' };
   }
-  if (mode === 'THREE_TEAM' && playerCount < 9) {
-    return { valid: false, error: 'Chế độ 3 Phe (có vai trò Độc Lập) yêu cầu tối thiểu từ 9 người chơi trở lên.' };
+  const range = MODE_PLAYER_RANGE[mode];
+  if (playerCount < range.min || playerCount > range.max) {
+    const modeLabel = mode === 'TWO_TEAM' ? '2 Phe (Dân vs Sói)' : '3 Phe (Có Độc Lập)';
+    return {
+      valid: false,
+      error: `Chế độ ${modeLabel} chỉ hỗ trợ từ ${range.min} đến ${range.max} người chơi (hiện tại: ${playerCount} người).`,
+    };
   }
   if (mode === 'TWO_TEAM' && neutralCount > 0) {
     return { valid: false, error: 'Chế độ 2 Phe không được chứa các vai trò thuộc Phe Độc Lập (Kẻ Hề, Kẻ Sát Nhân...).' };

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Player, RoomData, RoleId, ChatMessage } from '../types';
 import { useGame } from '../context/GameContext';
-import { Sun, MessageSquare, Send, Clock, AlertTriangle, ShieldAlert, Award, MicOff, VolumeX } from 'lucide-react';
+import { Sun, MessageSquare, Send, ShieldAlert, MicOff, VolumeX } from 'lucide-react';
 
 interface Props {
   room: RoomData;
@@ -15,14 +15,13 @@ interface Props {
 export const DayPhaseView: React.FC<Props> = ({
   room,
   myPlayer,
-  myRole,
   chatMessages,
   onSendChat,
   onOpenMyCard,
 }) => {
   const [inputText, setInputText] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const { voiceStates, isSilenced } = useGame();
+  const { isSilenced } = useGame();
 
   const gameState = room.gameState;
   const victims = gameState?.lastNightVictims || [];
@@ -43,6 +42,7 @@ export const DayPhaseView: React.FC<Props> = ({
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [relevantMessages]);
 
+  // Xử lý gửi tin nhắn - CHUẨN FORM SUBMIT TRÁNH BỊ BẤM GỬI 2 LẦN
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim()) return;
@@ -75,6 +75,7 @@ export const DayPhaseView: React.FC<Props> = ({
             ⏳ {remainingSeconds}s
           </div>
           <button
+            type="button"
             onClick={onOpenMyCard}
             className="px-3.5 py-1.5 rounded-2xl bg-purple-950/60 hover:bg-purple-900 border border-purple-700/50 text-xs font-bold text-purple-300 transition"
           >
@@ -102,7 +103,7 @@ export const DayPhaseView: React.FC<Props> = ({
                 className="p-3 rounded-2xl bg-rose-950/30 border border-rose-800/40 text-xs text-rose-300 flex items-center justify-between"
               >
                 <span>
-                  💀 <strong>{v.playerName}</strong> đã ngã xuống trong đêm ({v.reason})
+                  💀 <strong>{v.playerName}</strong> đã ngã xuống trong đêm 
                 </span>
                 {room.settings.revealRoleOnDeath && v.roleName && (
                   <span className="font-mono text-[10px] px-2 py-0.5 rounded-md bg-rose-900/60 text-rose-200 border border-rose-700/50">
@@ -144,13 +145,13 @@ export const DayPhaseView: React.FC<Props> = ({
               Chưa có tin nhắn nào. Hãy bắt đầu chất vấn kẻ tình nghi!
             </div>
           ) : (
-            relevantMessages.map((msg) => {
+            relevantMessages.map((msg, idx) => {
               const isSenderMe = msg.senderId === myPlayer.id;
               const isGhostChat = msg.channel === 'GHOST_PRIVATE';
 
               return (
                 <div
-                  key={msg.id}
+                  key={msg.id || idx}
                   className={`flex flex-col ${isSenderMe ? 'items-end' : 'items-start'}`}
                 >
                   <div className="flex items-center gap-1.5 mb-0.5 text-[10px] text-zinc-400">

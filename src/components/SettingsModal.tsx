@@ -198,8 +198,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
               <div>
                 <div className="text-xs font-bold text-white">Máy Chủ TURN (Voice Chat)</div>
                 <div className="text-[10px] text-zinc-400">
-                  Giúp giọng nói kết nối được khi 2 máy dùng mạng 4G/Wifi khác nhau. Để trống sẽ dùng TURN
-                  mặc định (miễn phí, chỉ nên dùng để test).
+                  Giúp giọng nói kết nối được khi 2 máy dùng mạng 4G/Wifi khác nhau.
                 </div>
               </div>
             </div>

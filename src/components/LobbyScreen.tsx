@@ -12,13 +12,10 @@ import {
   Play,
   Bot,
   UserX,
-  Sparkles,
   Layers,
-  Settings,
   Send,
   MessageSquare,
   LogOut,
-  Share2,
   Mic,
   MicOff,
   Volume2,
@@ -55,7 +52,6 @@ export const LobbyScreen: React.FC<Props> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [showDeckBuilder, setShowDeckBuilder] = useState(false);
-  const [showSettingsDropdown, setShowSettingsDropdown] = useState(false);
   const [inputText, setInputText] = useState('');
 
   const { voiceStates } = useGame();
@@ -70,6 +66,7 @@ export const LobbyScreen: React.FC<Props> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // Xử lý gửi tin nhắn sảnh chờ - Chuẩn Form Submit không bị gửi đúp
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim()) return;
@@ -91,6 +88,7 @@ export const LobbyScreen: React.FC<Props> = ({
                 {room.code}
               </h2>
               <button
+                type="button"
                 onClick={handleCopyCode}
                 className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition"
                 title="Sao chép mã phòng"
@@ -110,6 +108,7 @@ export const LobbyScreen: React.FC<Props> = ({
           {isHost && (
             <>
               <button
+                type="button"
                 onClick={onAddBot}
                 disabled={playerCount >= room.settings.maxPlayers}
                 className="px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-xs font-bold text-zinc-200 flex items-center gap-1.5 transition"
@@ -119,6 +118,7 @@ export const LobbyScreen: React.FC<Props> = ({
               </button>
 
               <button
+                type="button"
                 onClick={() => setShowDeckBuilder(true)}
                 className="px-3.5 py-2 rounded-xl bg-purple-950/60 hover:bg-purple-900 border border-purple-700/50 text-xs font-bold text-purple-300 flex items-center gap-1.5 transition"
               >
@@ -129,6 +129,7 @@ export const LobbyScreen: React.FC<Props> = ({
           )}
 
           <button
+            type="button"
             onClick={onLeaveRoom}
             className="p-2 rounded-xl bg-zinc-900 hover:bg-rose-950/40 text-zinc-400 hover:text-rose-400 border border-zinc-800 transition"
             title="Rời phòng"
@@ -215,6 +216,7 @@ export const LobbyScreen: React.FC<Props> = ({
                     {isHost && !isMe && (
                       <div className="flex items-center gap-1">
                         <button
+                          type="button"
                           onClick={() => onTransferHost(p.id)}
                           className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-amber-400 transition"
                           title="Chuyển quyền Quản Trò"
@@ -222,6 +224,7 @@ export const LobbyScreen: React.FC<Props> = ({
                           <Crown className="w-3.5 h-3.5" />
                         </button>
                         <button
+                          type="button"
                           onClick={() => onKickPlayer(p.id)}
                           className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-rose-400 transition"
                           title="Đuổi khỏi phòng"
@@ -242,6 +245,7 @@ export const LobbyScreen: React.FC<Props> = ({
               <span>Bộ Bài Đã Chọn ({totalCards} Thẻ)</span>
               {isHost && (
                 <button
+                  type="button"
                   onClick={() => setShowDeckBuilder(true)}
                   className="text-cyan-400 hover:underline capitalize"
                 >
@@ -273,6 +277,7 @@ export const LobbyScreen: React.FC<Props> = ({
           {/* Host Start Game Button */}
           {isHost ? (
             <button
+              type="button"
               disabled={!isDeckBalanced}
               onClick={onStartGame}
               className={`w-full py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-2xl transition active:scale-95 ${
@@ -312,12 +317,12 @@ export const LobbyScreen: React.FC<Props> = ({
             ) : (
               chatMessages
                 .filter((m) => m.channel === 'LOBBY')
-                .map((msg) => {
+                .map((msg, idx) => {
                   const isSenderMe = msg.senderId === myPlayer.id;
 
                   return (
                     <div
-                      key={msg.id}
+                      key={msg.id || idx}
                       className={`flex flex-col ${isSenderMe ? 'items-end' : 'items-start'}`}
                     >
                       <div className="text-[10px] text-zinc-400 mb-0.5 font-medium">
@@ -338,6 +343,7 @@ export const LobbyScreen: React.FC<Props> = ({
             )}
           </div>
 
+          {/* Form chat chuẩn - Nút gửi chỉ mang type="submit" để không kích hoạt handler 2 lần */}
           <form onSubmit={handleSendMessage} className="p-2.5 border-t border-zinc-800 bg-zinc-950 flex gap-2">
             <input
               type="text"
@@ -365,6 +371,7 @@ export const LobbyScreen: React.FC<Props> = ({
         playerCount={playerCount}
         settings={room.settings}
         onSaveDeck={onUpdateDeck}
+        onUpdateSettings={onUpdateSettings}
       />
     </div>
   );

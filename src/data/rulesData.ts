@@ -35,7 +35,7 @@ export const BEGINNER_GUIDE: GuideSection[] = [
       '• Điều kiện thắng: Tiêu diệt dân làng đến khi số lượng Sói bằng hoặc lớn hơn số Dân còn sống.',
       '',
       '👨 PHE DÂN LÀNG (Village Team):',
-      'Bao gồm Dân Thường, Tiên Tri, Bảo Vệ, Phù Thủy, Thợ Săn, Già Làng, Cảnh Sát Trưởng. Đa số không biết danh tính của nhau từ đầu.',
+      'Bao gồm Dân Thường, Tiên Tri, Bảo Vệ, Phù Thủy, Thợ Săn, Già Làng, Cảnh Sát Trưởng, Nữ thần Liễu. Đa số không biết danh tính của nhau từ đầu.',
       '• Điều kiện thắng: Loại bỏ hoàn toàn tất cả Ma Sói và phe thù địch khỏi ngôi làng.',
       '',
       '☠️ PHE ĐỘC LẬP / THỨ BA (Neutral Team):',
