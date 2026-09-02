@@ -7,7 +7,8 @@ import {
   LocalParticipant,
   Track,
   ConnectionState,
-  DisconnectReason,
+  LocalTrackPublication,
+  createLocalAudioTrack,
 } from 'livekit-client';
 
 export interface LiveKitConfig {
@@ -19,13 +20,8 @@ export interface LiveKitCallbacks {
   onConnected?: () => void;
   onDisconnected?: (reason?: string) => void;
 
-  onParticipantConnected?: (
-    participant: RemoteParticipant
-  ) => void;
-
-  onParticipantDisconnected?: (
-    participant: RemoteParticipant
-  ) => void;
+  onParticipantConnected?: (participant: RemoteParticipant) => void;
+  onParticipantDisconnected?: (participant: RemoteParticipant) => void;
 
   onTrackSubscribed?: (
     track: RemoteTrack,
@@ -42,25 +38,128 @@ export interface LiveKitCallbacks {
   onError?: (error: Error) => void;
 }
 
+type DebugState = {
+  roomConnected: boolean;
+  localMicCreated: boolean;
+  localMicPublished: boolean;
+  remoteParticipantConnected: boolean;
+  remoteAudioTrackReceived: boolean;
+  remoteAudioAttached: boolean;
+  remoteAudioPlaying: boolean;
+};
+
 class LiveKitService {
   private room: Room | null = null;
-
   private config: LiveKitConfig | null = null;
-
   private callbacks: LiveKitCallbacks = {};
 
   private connected = false;
-
   private microphoneEnabled = false;
+  private microphoneWanted = false;
+  private microphonePublishPromise: Promise<boolean> | null = null;
+  private signalConnected = false;
 
   private remoteAudioElements =
     new Map<string, HTMLAudioElement>();
 
+  private debug: DebugState = {
+    roomConnected: false,
+    localMicCreated: false,
+    localMicPublished: false,
+    remoteParticipantConnected: false,
+    remoteAudioTrackReceived: false,
+    remoteAudioAttached: false,
+    remoteAudioPlaying: false,
+  };
+
+  // =========================================================
+  // DEBUG
+  // =========================================================
+
+  private resetDebug() {
+    this.debug = {
+      roomConnected: false,
+      localMicCreated: false,
+      localMicPublished: false,
+      remoteParticipantConnected: false,
+      remoteAudioTrackReceived: false,
+      remoteAudioAttached: false,
+      remoteAudioPlaying: false,
+    };
+  }
+
+  private printDebug() {
+    console.log('');
+    console.log(
+      '%c========== LIVEKIT DEBUG ==========',
+      'font-weight:bold;font-size:14px'
+    );
+
+    console.log(
+      '[1] Room connected       ',
+      this.debug.roomConnected ? '✅' : '❌'
+    );
+
+    console.log(
+      '[2] Local microphone     ',
+      this.debug.localMicCreated ? '✅' : '❌'
+    );
+
+    console.log(
+      '[3] Audio published      ',
+      this.debug.localMicPublished ? '✅' : '❌'
+    );
+
+    console.log(
+      '[4] Remote participant   ',
+      this.debug.remoteParticipantConnected ? '✅' : '❌'
+    );
+
+    console.log(
+      '[5] Remote audio track   ',
+      this.debug.remoteAudioTrackReceived ? '✅' : '❌'
+    );
+
+    console.log(
+      '[6] Audio element        ',
+      this.debug.remoteAudioAttached ? '✅' : '❌'
+    );
+
+    console.log(
+      '[7] Audio playback       ',
+      this.debug.remoteAudioPlaying ? '✅' : '❌'
+    );
+
+    console.log(
+      '%c===================================',
+      'font-weight:bold;font-size:14px'
+    );
+
+    console.log(
+      '[LIVEKIT][DEBUG] State:',
+      { ...this.debug }
+    );
+
+    console.log('');
+  }
+
   /**
-   * ========================================
-   * INITIALIZE
-   * ========================================
+   * Có thể gọi từ code khác để xem trạng thái debug.
    */
+  getDebugState(): DebugState {
+    return { ...this.debug };
+  }
+
+  /**
+   * In trạng thái debug hiện tại.
+   */
+  showDebug() {
+    this.printDebug();
+  }
+
+  // =========================================================
+  // INITIALIZE
+  // =========================================================
 
   initialize(
     config: LiveKitConfig,
@@ -69,16 +168,18 @@ class LiveKitService {
     this.config = config;
     this.callbacks = callbacks;
 
+    this.resetDebug();
+
     console.log(
       '[LIVEKIT] ========================================'
     );
 
     console.log(
-      '[LIVEKIT] Initializing LiveKit Service'
+      '[LIVEKIT] Initializing'
     );
 
     console.log(
-      '[LIVEKIT] Server:',
+      '[LIVEKIT] URL:',
       config.url
     );
 
@@ -94,11 +195,9 @@ class LiveKitService {
     );
   }
 
-  /**
-   * ========================================
-   * CONNECT
-   * ========================================
-   */
+  // =========================================================
+  // CONNECT
+  // =========================================================
 
   async connect(): Promise<boolean> {
     if (!this.config) {
@@ -116,10 +215,7 @@ class LiveKitService {
       return false;
     }
 
-    if (
-      this.connected &&
-      this.room
-    ) {
+    if (this.connected && this.room) {
       console.log(
         '[LIVEKIT] Already connected'
       );
@@ -128,92 +224,68 @@ class LiveKitService {
     }
 
     try {
-      console.log(
-        '[LIVEKIT] ========================================'
-      );
+      this.resetDebug();
 
       console.log(
         '[LIVEKIT] Connecting...'
       );
 
       console.log(
-        '[LIVEKIT] URL:',
+        '[LIVEKIT] Server:',
         this.config.url
       );
-
-      /**
-       * Audio configuration
-       *
-       * Quan trọng:
-       * - Echo cancellation
-       * - Noise suppression
-       * - Auto gain control
-       * - Mono microphone
-       */
 
       this.room = new Room({
         adaptiveStream: true,
         dynacast: true,
-
         audioCaptureDefaults: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          channelCount: 1,
         },
       });
-
-      console.log(
-        '[LIVEKIT] Room created'
-      );
 
       this.registerRoomEvents();
 
       await this.room.connect(
         this.config.url,
-        this.config.token
+        this.config.token,
+        {
+          autoSubscribe: true,
+          maxRetries: 5,
+        }
       );
+
+      // room.connect() has completed, but keep a small safety wait so
+      // microphone publishing never races the LiveKit signaling state.
+      await this.waitForSignalReady(5000);
 
       this.connected = true;
 
+      this.debug.roomConnected = true;
+
       console.log(
-        '[LIVEKIT] ✅ CONNECTED'
+        '[LIVEKIT] ✅ Connected'
       );
 
       console.log(
-        '[LIVEKIT] Room name:',
+        '[LIVEKIT] Room:',
         this.room.name
       );
 
       console.log(
-        '[LIVEKIT] Local identity:',
+        '[LIVEKIT] Local participant:',
         this.room.localParticipant.identity
       );
 
-      console.log(
-        '[LIVEKIT] Remote participants:',
-        this.room.remoteParticipants.size
-      );
-
-      this.room.remoteParticipants.forEach(
-        (participant) => {
-          console.log(
-            '[LIVEKIT][REMOTE] Existing participant:',
-            participant.identity
-          );
-        }
-      );
-
-      console.log(
-        '[LIVEKIT] ========================================'
-      );
+      this.printDebug();
 
       this.callbacks.onConnected?.();
 
       return true;
     } catch (error) {
       console.error(
-        '[LIVEKIT] ❌ CONNECTION FAILED:',
+        '[LIVEKIT] ❌ Connection failed:',
         error
       );
 
@@ -226,105 +298,178 @@ class LiveKitService {
 
       this.callbacks.onError?.(err);
 
+      this.printDebug();
+
       return false;
     }
   }
 
-  /**
-   * ========================================
-   * ROOM EVENTS
-   * ========================================
-   */
+  private async waitForSignalReady(timeoutMs = 5000): Promise<boolean> {
+    const started = Date.now();
 
-  private registerRoomEvents() {
-    if (!this.room) {
-      return;
+    while (this.room) {
+      const state = this.room.state;
+
+      if (state === ConnectionState.Connected || this.signalConnected) {
+        return true;
+      }
+
+      if (Date.now() - started >= timeoutMs) {
+        return false;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
-    /**
-     * CONNECTED
-     */
+    return false;
+  }
+
+  private async ensureRemoteAudioSubscriptions() {
+    if (!this.room) return;
+
+    for (const participant of this.room.remoteParticipants.values()) {
+      for (const publication of participant.audioTrackPublications.values()) {
+        try {
+          if (!publication.isSubscribed) {
+            console.log('[LIVEKIT][SUBSCRIBE] Subscribing existing audio:', {
+              participant: participant.identity,
+              sid: publication.trackSid,
+            });
+            publication.setSubscribed(true);
+          }
+        } catch (error) {
+          console.warn('[LIVEKIT][SUBSCRIBE] Failed to subscribe:', error);
+        }
+      }
+    }
+  }
+
+  // =========================================================
+  // ROOM EVENTS
+  // =========================================================
+
+  private registerRoomEvents() {
+    if (!this.room) return;
 
     this.room.on(
       RoomEvent.Connected,
       () => {
         console.log(
-          '[LIVEKIT][ROOM] ✅ Connected event'
+          '[LIVEKIT][ROOM] ✅ Connected'
         );
+
+        this.debug.roomConnected = true;
+
+        this.printDebug();
       }
     );
 
-    /**
-     * DISCONNECTED
-     */
+    this.room.on(
+      RoomEvent.SignalConnected,
+      () => {
+        this.signalConnected = true;
+        console.log('[LIVEKIT][SIGNAL] ✅ Signal connected - publishing is ready');
+      }
+    );
+
+    this.room.on(
+      RoomEvent.SignalReconnecting,
+      () => {
+        this.signalConnected = false;
+        console.warn('[LIVEKIT][SIGNAL] ⚠️ Signal reconnecting');
+      }
+    );
+
+    this.room.on(
+      RoomEvent.Reconnecting,
+      () => {
+        console.warn('[LIVEKIT][ROOM] ⚠️ Media reconnecting');
+      }
+    );
+
+    this.room.on(
+      RoomEvent.Reconnected,
+      async () => {
+        console.log('[LIVEKIT][ROOM] ✅ Reconnected');
+        this.connected = true;
+        this.debug.roomConnected = true;
+        this.signalConnected = true;
+
+        await this.ensureRemoteAudioSubscriptions();
+
+        if (this.microphoneWanted) {
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          await this.publishMicrophoneWithRetry();
+        }
+      }
+    );
 
     this.room.on(
       RoomEvent.Disconnected,
-      (
-        reason?: DisconnectReason
-      ) => {
+      (reason) => {
         console.log(
           '[LIVEKIT][ROOM] ❌ Disconnected:',
           reason
         );
 
         this.connected = false;
+        this.signalConnected = false;
+
+        this.debug.roomConnected = false;
 
         this.callbacks.onDisconnected?.(
           reason
             ? String(reason)
             : undefined
         );
+
+        this.printDebug();
       }
     );
 
-    /**
-     * PARTICIPANT CONNECTED
-     */
-
     this.room.on(
       RoomEvent.ParticipantConnected,
-      (
-        participant: RemoteParticipant
-      ) => {
-        console.log(
-          '[LIVEKIT][PARTICIPANT] ========================================'
-        );
-
+      (participant) => {
         console.log(
           '[LIVEKIT][PARTICIPANT] ✅ Connected:',
           participant.identity
         );
 
-        console.log(
-          '[LIVEKIT][PARTICIPANT] SID:',
-          participant.sid
-        );
+        this.debug.remoteParticipantConnected = true;
 
         console.log(
-          '[LIVEKIT][PARTICIPANT] Publications:',
-          participant.trackPublications.size
+          '[LIVEKIT][PARTICIPANT] Audio publications:',
+          participant
+            .audioTrackPublications
+            .size
         );
 
-        console.log(
-          '[LIVEKIT][PARTICIPANT] ========================================'
-        );
+        this.printDebug();
 
         this.callbacks.onParticipantConnected?.(
           participant
         );
+
+        // The participant may already have published the microphone before
+        // this client finished joining. Explicitly subscribe to any existing
+        // audio publication.
+        setTimeout(() => {
+          for (const publication of participant.audioTrackPublications.values()) {
+            try {
+              if (!publication.isSubscribed) {
+                publication.setSubscribed(true);
+              }
+            } catch (error) {
+              console.warn('[LIVEKIT][SUBSCRIBE] Participant audio subscribe failed:', error);
+            }
+          }
+        }, 0);
       }
     );
 
-    /**
-     * PARTICIPANT DISCONNECTED
-     */
-
     this.room.on(
       RoomEvent.ParticipantDisconnected,
-      (
-        participant: RemoteParticipant
-      ) => {
+      (participant) => {
         console.log(
           '[LIVEKIT][PARTICIPANT] ❌ Disconnected:',
           participant.identity
@@ -334,38 +479,81 @@ class LiveKitService {
           participant.identity
         );
 
+        this.debug.remoteParticipantConnected = false;
+        this.debug.remoteAudioTrackReceived = false;
+        this.debug.remoteAudioAttached = false;
+        this.debug.remoteAudioPlaying = false;
+
         this.callbacks.onParticipantDisconnected?.(
           participant
         );
+
+        this.printDebug();
       }
     );
 
-    /**
-     * TRACK SUBSCRIBED
-     *
-     * Đây là event cực kỳ quan trọng.
-     *
-     * Nếu máy tính thấy:
-     *
-     * TRACK SUBSCRIBED
-     *
-     * thì máy tính đã nhận được
-     * audio từ điện thoại.
-     */
+    // =======================================================
+    // QUAN TRỌNG NHẤT
+    // Remote audio nhận được ở đây
+    // =======================================================
+
+    this.room.on(
+      RoomEvent.TrackPublished,
+      (publication, participant) => {
+        if (publication.kind !== Track.Kind.Audio) return;
+
+        console.log('[LIVEKIT][TRACK] 🎤 Remote audio published:', {
+          participant: participant.identity,
+          sid: publication.trackSid,
+          subscribed: publication.isSubscribed,
+        });
+
+        if (!publication.isSubscribed) {
+          try {
+            publication.setSubscribed(true);
+          } catch (error) {
+            console.warn('[LIVEKIT][SUBSCRIBE] TrackPublished subscribe failed:', error);
+          }
+        }
+      }
+    );
+
+    this.room.on(
+      RoomEvent.TrackSubscriptionFailed,
+      (trackSid, participant) => {
+        console.warn('[LIVEKIT][SUBSCRIBE] ❌ Track subscription failed:', {
+          trackSid,
+          participant: participant?.identity,
+        });
+
+        setTimeout(() => {
+          if (!this.room) return;
+          const p = participant ? this.room.remoteParticipants.get(participant.identity) : undefined;
+          const publication = p?.audioTrackPublications.get(trackSid);
+          if (publication && !publication.isSubscribed) {
+            try {
+              publication.setSubscribed(true);
+            } catch (error) {
+              console.warn('[LIVEKIT][SUBSCRIBE] Retry failed:', error);
+            }
+          }
+        }, 500);
+      }
+    );
 
     this.room.on(
       RoomEvent.TrackSubscribed,
       (
-        track: RemoteTrack,
-        publication: RemoteTrackPublication,
-        participant: RemoteParticipant
+        track,
+        publication,
+        participant
       ) => {
         console.log(
-          '[LIVEKIT][TRACK] ========================================'
+          '[LIVEKIT][TRACK] ================================='
         );
 
         console.log(
-          '[LIVEKIT][TRACK] ✅ SUBSCRIBED'
+          '[LIVEKIT][TRACK] ✅ TrackSubscribed'
         );
 
         console.log(
@@ -385,20 +573,16 @@ class LiveKitService {
 
         console.log(
           '[LIVEKIT][TRACK] Publication:',
-          {
-            kind: publication.kind,
-            source: publication.source,
-            trackSid: publication.trackSid,
-            trackName: publication.trackName,
-            muted: publication.isMuted,
-          }
+          publication
         );
 
         if (
           track.kind === Track.Kind.Audio
         ) {
+          this.debug.remoteAudioTrackReceived = true;
+
           console.log(
-            '[LIVEKIT][TRACK] 🎤 Remote AUDIO detected'
+            '[LIVEKIT][REMOTE AUDIO] 🎧 Audio track received'
           );
 
           this.attachRemoteAudio(
@@ -407,9 +591,7 @@ class LiveKitService {
           );
         }
 
-        console.log(
-          '[LIVEKIT][TRACK] ========================================'
-        );
+        this.printDebug();
 
         this.callbacks.onTrackSubscribed?.(
           track,
@@ -419,19 +601,15 @@ class LiveKitService {
       }
     );
 
-    /**
-     * TRACK UNSUBSCRIBED
-     */
-
     this.room.on(
       RoomEvent.TrackUnsubscribed,
       (
-        track: RemoteTrack,
-        publication: RemoteTrackPublication,
-        participant: RemoteParticipant
+        track,
+        publication,
+        participant
       ) => {
         console.log(
-          '[LIVEKIT][TRACK] ❌ UNSUBSCRIBED:',
+          '[LIVEKIT][TRACK] ❌ TrackUnsubscribed:',
           {
             kind: track.kind,
             participant:
@@ -447,6 +625,15 @@ class LiveKitService {
           this.removeRemoteAudio(
             participant.identity
           );
+
+          this.debug.remoteAudioTrackReceived =
+            false;
+
+          this.debug.remoteAudioAttached =
+            false;
+
+          this.debug.remoteAudioPlaying =
+            false;
         }
 
         this.callbacks.onTrackUnsubscribed?.(
@@ -454,26 +641,26 @@ class LiveKitService {
           publication,
           participant
         );
+
+        this.printDebug();
       }
     );
 
-    /**
-     * LOCAL TRACK PUBLISHED
-     *
-     * Đây là log quan trọng nhất
-     * để biết điện thoại đã đưa mic
-     * lên LiveKit hay chưa.
-     */
+    // =======================================================
+    // LOCAL AUDIO PUBLISHED
+    // =======================================================
 
     this.room.on(
       RoomEvent.LocalTrackPublished,
-      (publication) => {
+      (
+        publication: LocalTrackPublication
+      ) => {
         console.log(
-          '[LIVEKIT][LOCAL TRACK] ========================================'
+          '[LIVEKIT][LOCAL TRACK] ================================='
         );
 
         console.log(
-          '[LIVEKIT][LOCAL TRACK] ✅ PUBLISHED'
+          '[LIVEKIT][LOCAL TRACK] Published'
         );
 
         console.log(
@@ -482,61 +669,51 @@ class LiveKitService {
         );
 
         console.log(
-          '[LIVEKIT][LOCAL TRACK] Source:',
-          publication.source
-        );
-
-        console.log(
           '[LIVEKIT][LOCAL TRACK] SID:',
           publication.trackSid
         );
 
-        console.log(
-          '[LIVEKIT][LOCAL TRACK] Name:',
-          publication.trackName
-        );
-
-        console.log(
-          '[LIVEKIT][LOCAL TRACK] Muted:',
-          publication.isMuted
-        );
-
         if (
-          publication.kind ===
-          Track.Kind.Audio
+          publication.kind === Track.Kind.Audio
         ) {
+          this.debug.localMicPublished = true;
+
           console.log(
-            '[LIVEKIT][LOCAL TRACK] 🎤 MICROPHONE AUDIO PUBLISHED'
+            '[LIVEKIT][PUBLISH] 🎤 Microphone audio published successfully'
           );
         }
 
-        console.log(
-          '[LIVEKIT][LOCAL TRACK] ========================================'
-        );
+        this.printDebug();
       }
     );
-
-    /**
-     * LOCAL TRACK UNPUBLISHED
-     */
 
     this.room.on(
       RoomEvent.LocalTrackUnpublished,
-      (publication) => {
+      (
+        publication
+      ) => {
         console.log(
-          '[LIVEKIT][LOCAL TRACK] ❌ UNPUBLISHED:',
+          '[LIVEKIT][LOCAL TRACK] ❌ Unpublished:',
           {
             kind: publication.kind,
-            source: publication.source,
             trackSid: publication.trackSid,
           }
         );
+
+        if (
+          publication.kind === Track.Kind.Audio
+        ) {
+          this.debug.localMicPublished =
+            false;
+        }
+
+        this.printDebug();
       }
     );
 
-    /**
-     * CONNECTION STATE
-     */
+    // =======================================================
+    // CONNECTION STATE
+    // =======================================================
 
     this.room.on(
       RoomEvent.ConnectionStateChanged,
@@ -544,319 +721,165 @@ class LiveKitService {
         state: ConnectionState
       ) => {
         console.log(
-          '[LIVEKIT][CONNECTION]',
+          '[LIVEKIT][CONNECTION] State:',
           state
         );
       }
     );
 
-    /**
-     * ACTIVE SPEAKERS
-     */
+    // =======================================================
+    // ACTIVE SPEAKERS
+    // =======================================================
 
     this.room.on(
       RoomEvent.ActiveSpeakersChanged,
       (speakers) => {
-        if (speakers.length > 0) {
-          console.log(
-            '[LIVEKIT][SPEAKER] Active:',
-            speakers.map(
-              (speaker) =>
-                speaker.identity
-            )
-          );
-        }
+        console.log(
+          '[LIVEKIT][SPEAKERS]',
+          speakers.map(
+            (p) => p.identity
+          )
+        );
       }
     );
   }
 
-  /**
-   * ========================================
-   * MICROPHONE
-   * ========================================
-   */
+  // =========================================================
+  // MICROPHONE
+  // =========================================================
 
-  async enableMicrophone(): Promise<boolean> {
-    if (!this.room) {
-      console.error(
-        '[LIVEKIT][MIC] ❌ Room chưa kết nối'
-      );
+  private async publishMicrophoneWithRetry(): Promise<boolean> {
+    if (!this.room) return false;
 
-      return false;
+    if (this.microphonePublishPromise) {
+      return this.microphonePublishPromise;
     }
 
-    try {
-      console.log(
-        '[LIVEKIT][MIC] ========================================'
-      );
+    this.microphonePublishPromise = (async () => {
+      const participant = this.room!.localParticipant;
 
-      console.log(
-        '[LIVEKIT][MIC] 🎤 ENABLE MICROPHONE'
-      );
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        try {
+          if (!this.room) return false;
 
-      console.log(
-        '[LIVEKIT][MIC] Participant:',
-        this.room.localParticipant.identity
-      );
+          const ready = await this.waitForSignalReady(3000);
+          if (!ready) {
+            console.warn('[LIVEKIT][MIC] Signal not ready, retrying...', attempt);
+            await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+            continue;
+          }
 
-      console.log(
-        '[LIVEKIT][MIC] Browser:',
-        navigator.userAgent
-      );
+          // Unlock browser audio output from the user's mic-button gesture when possible.
+          try {
+            await (this.room as any).startAudio?.();
+          } catch {
+            // Not all browsers require/allow startAudio here.
+          }
 
-      console.log(
-        '[LIVEKIT][MIC] Protocol:',
-        window.location.protocol
-      );
+          console.log(`[LIVEKIT][MIC] Publish attempt ${attempt}/4`);
 
-      console.log(
-        '[LIVEKIT][MIC] Host:',
-        window.location.host
-      );
+          const publication = await participant.setMicrophoneEnabled(
+            true,
+            {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+            {
+              source: Track.Source.Microphone,
+            }
+          );
 
-      /**
-       * Kiểm tra MediaDevices
-       */
+          const micPublication =
+            publication ??
+            Array.from(participant.audioTrackPublications.values()).find(
+              (pub) => pub.source === Track.Source.Microphone
+            );
 
-      console.log(
-        '[LIVEKIT][MIC] mediaDevices:',
-        !!navigator.mediaDevices
-      );
+          if (micPublication && micPublication.track) {
+            // setMicrophoneEnabled(true) should unmute an existing publication.
+            if (micPublication.isMuted) {
+              micPublication.setMuted(false);
+            }
 
-      console.log(
-        '[LIVEKIT][MIC] getUserMedia:',
-        !!navigator.mediaDevices?.getUserMedia
-      );
+            this.microphoneEnabled = true;
+            this.debug.localMicCreated = true;
+            this.debug.localMicPublished = true;
 
-      /**
-       * Kiểm tra permission nếu browser hỗ trợ
-       */
-
-      try {
-        if (
-          navigator.permissions
-        ) {
-          const permission =
-            await navigator.permissions.query({
-              name: 'microphone' as PermissionName,
+            console.log('[LIVEKIT][MIC] ✅ Published and verified:', {
+              sid: micPublication.trackSid,
+              source: micPublication.source,
+              muted: micPublication.isMuted,
+              hasTrack: !!micPublication.track,
+              mediaTrackState: micPublication.track.mediaStreamTrack.readyState,
+              mediaTrackEnabled: micPublication.track.mediaStreamTrack.enabled,
             });
 
-          console.log(
-            '[LIVEKIT][MIC] Permission state:',
-            permission.state
-          );
+            this.printDebug();
+            return true;
+          }
+
+          console.warn('[LIVEKIT][MIC] Publication not available after enable, retrying...');
+        } catch (error) {
+          console.warn(`[LIVEKIT][MIC] Publish attempt ${attempt} failed:`, error);
+
+          if (attempt === 4) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.callbacks.onError?.(err);
+          }
         }
-      } catch (permissionError) {
-        console.log(
-          '[LIVEKIT][MIC] Permission query unavailable:',
-          permissionError
-        );
+
+        await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
       }
-
-      /**
-       * Bật microphone
-       */
-
-      console.log(
-        '[LIVEKIT][MIC] Requesting microphone...'
-      );
-
-      await this.room.localParticipant.setMicrophoneEnabled(
-        true
-      );
-
-      this.microphoneEnabled = true;
-
-      console.log(
-        '[LIVEKIT][MIC] ✅ setMicrophoneEnabled SUCCESS'
-      );
-
-      /**
-       * Lấy tất cả local publications
-       */
-
-      const publications =
-        Array.from(
-          this.room.localParticipant
-            .trackPublications
-            .values()
-        );
-
-      console.log(
-        '[LIVEKIT][MIC] Local publications count:',
-        publications.length
-      );
-
-      console.log(
-        '[LIVEKIT][MIC] Local publications:',
-        publications.map(
-          (publication) => ({
-            kind: publication.kind,
-            source: publication.source,
-            trackSid:
-              publication.trackSid,
-            trackName:
-              publication.trackName,
-            muted:
-              publication.isMuted,
-          })
-        )
-      );
-
-      /**
-       * Tìm microphone publication
-       */
-
-      const micPublication =
-        this.room.localParticipant.getTrackPublication(
-          Track.Source.Microphone
-        );
-
-      if (!micPublication) {
-        console.error(
-          '[LIVEKIT][MIC] ❌❌❌ MICROPHONE PUBLICATION NOT FOUND'
-        );
-
-        console.error(
-          '[LIVEKIT][MIC] Có nghĩa là setMicrophoneEnabled() chạy nhưng microphone chưa được publish.'
-        );
-
-        return false;
-      }
-
-      console.log(
-        '[LIVEKIT][MIC] 🎤 Microphone publication FOUND'
-      );
-
-      console.log(
-        '[LIVEKIT][MIC] Publication info:',
-        {
-          sid:
-            micPublication.trackSid,
-          kind:
-            micPublication.kind,
-          source:
-            micPublication.source,
-          name:
-            micPublication.trackName,
-          muted:
-            micPublication.isMuted,
-        }
-      );
-
-      /**
-       * Kiểm tra LocalTrack
-       */
-
-      if (!micPublication.track) {
-        console.error(
-          '[LIVEKIT][MIC] ❌ Microphone publication has NO TRACK'
-        );
-
-        return false;
-      }
-
-      console.log(
-        '[LIVEKIT][MIC] 🎤 Local audio track FOUND'
-      );
-
-      const mediaStreamTrack =
-        micPublication.track
-          .mediaStreamTrack;
-
-      console.log(
-        '[LIVEKIT][MIC] MediaTrack:',
-        mediaStreamTrack
-      );
-
-      console.log(
-        '[LIVEKIT][MIC] Track ID:',
-        mediaStreamTrack.id
-      );
-
-      console.log(
-        '[LIVEKIT][MIC] Track enabled:',
-        mediaStreamTrack.enabled
-      );
-
-      console.log(
-        '[LIVEKIT][MIC] Track readyState:',
-        mediaStreamTrack.readyState
-      );
-
-      console.log(
-        '[LIVEKIT][MIC] Track muted:',
-        mediaStreamTrack.muted
-      );
-
-      /**
-       * Lấy thông tin microphone
-       */
-
-      try {
-        console.log(
-          '[LIVEKIT][MIC] Track settings:',
-          mediaStreamTrack.getSettings()
-        );
-      } catch {
-        console.log(
-          '[LIVEKIT][MIC] Track settings unavailable'
-        );
-      }
-
-      console.log(
-        '[LIVEKIT][MIC] ========================================'
-      );
-
-      return true;
-    } catch (error) {
-      console.error(
-        '[LIVEKIT][MIC] ❌ ENABLE FAILED:',
-        error
-      );
 
       this.microphoneEnabled = false;
-
-      const err =
-        error instanceof Error
-          ? error
-          : new Error(String(error));
-
-      this.callbacks.onError?.(err);
-
+      this.debug.localMicPublished = false;
+      this.printDebug();
       return false;
+    })();
+
+    try {
+      return await this.microphonePublishPromise;
+    } finally {
+      this.microphonePublishPromise = null;
     }
   }
 
-  /**
-   * ========================================
-   * DISABLE MICROPHONE
-   * ========================================
-   */
+  async enableMicrophone(): Promise<boolean> {
+    if (!this.room) {
+      console.error('[LIVEKIT][MIC] ❌ Room chưa kết nối');
+      return false;
+    }
+
+    this.microphoneWanted = true;
+    return this.publishMicrophoneWithRetry();
+  }
+
+  // =========================================================
+  // DISABLE MICROPHONE
+  // =========================================================
 
   async disableMicrophone(): Promise<boolean> {
-    if (!this.room) {
-      console.error(
-        '[LIVEKIT][MIC] ❌ Room chưa kết nối'
-      );
+    this.microphoneWanted = false;
 
+    if (!this.room) {
       return false;
     }
 
     try {
-      console.log(
-        '[LIVEKIT][MIC] 🔇 Disabling microphone...'
-      );
-
-      await this.room.localParticipant.setMicrophoneEnabled(
-        false
-      );
+      await this.room.localParticipant
+        .setMicrophoneEnabled(false);
 
       this.microphoneEnabled = false;
 
+      this.debug.localMicCreated = false;
+      this.debug.localMicPublished = false;
+
       console.log(
-        '[LIVEKIT][MIC] ✅ Microphone disabled'
+        '[LIVEKIT][MIC] 🔇 Microphone disabled'
       );
+
+      this.printDebug();
 
       return true;
     } catch (error) {
@@ -869,113 +892,39 @@ class LiveKitService {
     }
   }
 
-  /**
-   * ========================================
-   * TOGGLE MICROPHONE
-   * ========================================
-   */
+  // =========================================================
+  // TOGGLE
+  // =========================================================
 
   async toggleMicrophone(): Promise<boolean> {
     console.log(
-      '[LIVEKIT][MIC] toggleMicrophone()'
+      '[LIVEKIT][MIC] toggle:',
+      {
+        current:
+          this.microphoneEnabled,
+        next:
+          !this.microphoneEnabled,
+      }
     );
 
-    console.log(
-      '[LIVEKIT][MIC] Current state:',
-      this.microphoneEnabled
-    );
-
-    if (
-      this.microphoneEnabled
-    ) {
+    if (this.microphoneEnabled) {
       return this.disableMicrophone();
     }
 
     return this.enableMicrophone();
   }
 
-  /**
-   * ========================================
-   * MICROPHONE STATE
-   * ========================================
-   */
+  // =========================================================
+  // MIC STATUS
+  // =========================================================
 
   isMicrophoneEnabled(): boolean {
     return this.microphoneEnabled;
   }
 
-  /**
-   * ========================================
-   * AUDIO START
-   *
-   * Dùng cho Android/WebView khi autoplay
-   * bị trình duyệt chặn.
-   *
-   * Nên gọi hàm này từ một nút mà người
-   * dùng trực tiếp bấm, ví dụ nút "Nghe".
-   * ========================================
-   */
-
-  async startAudio(): Promise<boolean> {
-    if (!this.room) {
-      console.error(
-        '[LIVEKIT][AUDIO] ❌ Room chưa kết nối'
-      );
-
-      return false;
-    }
-
-    try {
-      console.log(
-        '[LIVEKIT][AUDIO] Starting audio playback...'
-      );
-
-      await this.room.startAudio();
-
-      console.log(
-        '[LIVEKIT][AUDIO] ✅ Audio playback started'
-      );
-
-      /**
-       * Thử play lại tất cả remote audio
-       */
-
-      for (const [
-        identity,
-        element,
-      ] of this.remoteAudioElements) {
-        try {
-          await element.play();
-
-          console.log(
-            '[LIVEKIT][AUDIO] ▶️ Playback resumed:',
-            identity
-          );
-        } catch (error) {
-          console.warn(
-            '[LIVEKIT][AUDIO] ⚠️ Playback still blocked:',
-            identity,
-            error
-          );
-        }
-      }
-
-      return true;
-    } catch (error) {
-      console.warn(
-        '[LIVEKIT][AUDIO] ⚠️ startAudio failed:',
-        error
-      );
-
-      return false;
-    }
-  }
-
-  /**
-   * ========================================
-   * LOCAL PARTICIPANT
-   * ========================================
-   */
+  // =========================================================
+  // LOCAL PARTICIPANT
+  // =========================================================
 
   getLocalParticipant():
     LocalParticipant | null {
@@ -985,21 +934,17 @@ class LiveKitService {
     );
   }
 
-  /**
-   * ========================================
-   * ROOM
-   * ========================================
-   */
+  // =========================================================
+  // ROOM
+  // =========================================================
 
   getRoom(): Room | null {
     return this.room;
   }
 
-  /**
-   * ========================================
-   * CONNECTED
-   * ========================================
-   */
+  // =========================================================
+  // CONNECTION
+  // =========================================================
 
   isConnected(): boolean {
     return (
@@ -1008,251 +953,60 @@ class LiveKitService {
     );
   }
 
-  /**
-   * ========================================
-   * DEBUG MICROPHONE
-   *
-   * Có thể gọi trong console:
-   *
-   * liveKitService.debugMicrophone()
-   * ========================================
-   */
-
-  debugMicrophone() {
-    console.log(
-      '[LIVEKIT][DEBUG MIC] ========================================'
-    );
-
-    if (!this.room) {
-      console.error(
-        '[LIVEKIT][DEBUG MIC] ❌ No room'
-      );
-
-      return;
-    }
-
-    const participant =
-      this.room.localParticipant;
-
-    console.log(
-      '[LIVEKIT][DEBUG MIC] Participant:',
-      participant.identity
-    );
-
-    console.log(
-      '[LIVEKIT][DEBUG MIC] Connected:',
-      this.connected
-    );
-
-    console.log(
-      '[LIVEKIT][DEBUG MIC] Microphone flag:',
-      this.microphoneEnabled
-    );
-
-    const publications =
-      Array.from(
-        participant.trackPublications.values()
-      );
-
-    console.log(
-      '[LIVEKIT][DEBUG MIC] Publications:',
-      publications.map(
-        (publication) => ({
-          kind: publication.kind,
-          source: publication.source,
-          sid: publication.trackSid,
-          name: publication.trackName,
-          muted: publication.isMuted,
-          hasTrack:
-            !!publication.track,
-        })
-      )
-    );
-
-    const micPublication =
-      participant.getTrackPublication(
-        Track.Source.Microphone
-      );
-
-    if (!micPublication) {
-      console.error(
-        '[LIVEKIT][DEBUG MIC] ❌ NO MICROPHONE PUBLICATION'
-      );
-
-      return;
-    }
-
-    console.log(
-      '[LIVEKIT][DEBUG MIC] Microphone publication:',
-      micPublication
-    );
-
-    if (!micPublication.track) {
-      console.error(
-        '[LIVEKIT][DEBUG MIC] ❌ NO LOCAL TRACK'
-      );
-
-      return;
-    }
-
-    const mediaTrack =
-      micPublication.track
-        .mediaStreamTrack;
-
-    console.log(
-      '[LIVEKIT][DEBUG MIC] MediaTrack:',
-      mediaTrack
-    );
-
-    console.log(
-      '[LIVEKIT][DEBUG MIC] enabled:',
-      mediaTrack.enabled
-    );
-
-    console.log(
-      '[LIVEKIT][DEBUG MIC] muted:',
-      mediaTrack.muted
-    );
-
-    console.log(
-      '[LIVEKIT][DEBUG MIC] readyState:',
-      mediaTrack.readyState
-    );
-
-    try {
-      console.log(
-        '[LIVEKIT][DEBUG MIC] settings:',
-        mediaTrack.getSettings()
-      );
-    } catch {}
-
-    console.log(
-      '[LIVEKIT][DEBUG MIC] ========================================'
-    );
-  }
-
-  /**
-   * ========================================
-   * REMOTE AUDIO
-   * ========================================
-   */
+  // =========================================================
+  // REMOTE AUDIO
+  // =========================================================
 
   private attachRemoteAudio(
     track: RemoteTrack,
     participant: RemoteParticipant
   ) {
     if (
-      track.kind !==
-      Track.Kind.Audio
+      track.kind !== Track.Kind.Audio
     ) {
       return;
     }
 
-    const identity =
-      participant.identity;
-
     try {
       console.log(
-        '[LIVEKIT][AUDIO] ========================================'
+        '[LIVEKIT][AUDIO] ================================='
       );
 
       console.log(
-        '[LIVEKIT][AUDIO] Attaching remote audio'
+        '[LIVEKIT][AUDIO] Attaching remote audio:',
+        participant.identity
       );
-
-      console.log(
-        '[LIVEKIT][AUDIO] Participant:',
-        identity
-      );
-
-      console.log(
-        '[LIVEKIT][AUDIO] Track kind:',
-        track.kind
-      );
-
-      /**
-       * Xóa audio cũ nếu tồn tại
-       */
 
       this.removeRemoteAudio(
-        identity
+        participant.identity
       );
 
-      /**
-       * Attach LiveKit track
-       */
+      const audioElement =
+        track.attach() as HTMLAudioElement;
 
-      const attached =
-        track.attach();
-
-      let audioElement: HTMLAudioElement;
-
-      if (
-        attached instanceof
-        HTMLAudioElement
-      ) {
-        audioElement = attached;
-      } else {
-        /**
-         * Trong một số môi trường,
-         * attach() có thể trả HTMLElement.
-         */
-
-        audioElement =
-          document.createElement(
-            'audio'
-          );
-
-        audioElement.autoplay =
-          true;
-
-        audioElement.playsInline =
-          true;
-
-        audioElement.srcObject =
-          (
-            attached as HTMLMediaElement
-          ).srcObject;
-      }
-
-      audioElement.autoplay =
-        true;
-
-      audioElement.controls =
-        false;
-
-      audioElement.playsInline =
-        true;
-
-      audioElement.muted =
-        false;
+      audioElement.autoplay = true;
+      audioElement.controls = false;
+      audioElement.playsInline = true;
 
       audioElement.volume = 1;
 
-      audioElement.setAttribute(
-        'playsinline',
-        ''
-      );
+      audioElement.muted = false;
 
-      audioElement.dataset.livekitParticipant =
-        identity;
+      audioElement.dataset
+        .livekitParticipant =
+        participant.identity;
 
-      /**
-       * Đưa vào DOM
-       */
-
-      if (
-        !audioElement.isConnected
-      ) {
-        document.body.appendChild(
-          audioElement
-        );
-      }
-
-      this.remoteAudioElements.set(
-        identity,
+      document.body.appendChild(
         audioElement
       );
+
+      this.remoteAudioElements.set(
+        participant.identity,
+        audioElement
+      );
+
+      this.debug.remoteAudioAttached =
+        true;
 
       console.log(
         '[LIVEKIT][AUDIO] ✅ Audio element attached'
@@ -1278,46 +1032,101 @@ class LiveKitService {
         audioElement.autoplay
       );
 
-      /**
-       * Thử phát ngay
-       */
+      // =====================================================
+      // AUDIO EVENTS
+      // =====================================================
+
+      audioElement.onplay = () => {
+        console.log(
+          '[LIVEKIT][AUDIO] ▶️ onplay'
+        );
+
+        this.debug.remoteAudioPlaying =
+          true;
+
+        this.printDebug();
+      };
+
+      audioElement.onplaying = () => {
+        console.log(
+          '[LIVEKIT][AUDIO] ▶️ onplaying'
+        );
+
+        this.debug.remoteAudioPlaying =
+          true;
+
+        this.printDebug();
+      };
+
+      audioElement.onpause = () => {
+        console.log(
+          '[LIVEKIT][AUDIO] ⏸️ onpause'
+        );
+
+        this.debug.remoteAudioPlaying =
+          false;
+      };
+
+      audioElement.onwaiting = () => {
+        console.warn(
+          '[LIVEKIT][AUDIO] ⏳ waiting'
+        );
+      };
+
+      audioElement.onerror = () => {
+        console.error(
+          '[LIVEKIT][AUDIO] ❌ HTML audio error:',
+          audioElement.error
+        );
+      };
+
+      // =====================================================
+      // PLAY
+      // =====================================================
 
       audioElement
         .play()
         .then(() => {
           console.log(
-            '[LIVEKIT][AUDIO] ✅ ▶️ Remote playback started:',
-            identity
+            '[LIVEKIT][AUDIO] ▶️ Playback started'
           );
+
+          this.debug.remoteAudioPlaying =
+            true;
+
+          this.printDebug();
         })
         .catch((error) => {
           console.warn(
-            '[LIVEKIT][AUDIO] ⚠️ Autoplay blocked:',
-            identity,
+            '[LIVEKIT][AUDIO] ⚠️ Playback blocked:',
             error
           );
 
           console.warn(
-            '[LIVEKIT][AUDIO] Hãy gọi liveKitService.startAudio() từ thao tác người dùng.'
+            '[LIVEKIT][AUDIO] User interaction may be required'
           );
-        });
 
-      console.log(
-        '[LIVEKIT][AUDIO] ========================================'
-      );
+          this.printDebug();
+        });
     } catch (error) {
       console.error(
-        '[LIVEKIT][AUDIO] ❌ ATTACH FAILED:',
+        '[LIVEKIT][AUDIO] ❌ Attach failed:',
         error
       );
+
+      this.debug.remoteAudioAttached =
+        false;
+
+      this.debug.remoteAudioPlaying =
+        false;
+
+      this.printDebug();
     }
   }
 
-  /**
-   * ========================================
-   * REMOVE REMOTE AUDIO
-   * ========================================
-   */
+  // =========================================================
+  // REMOVE REMOTE AUDIO
+  // =========================================================
 
   private removeRemoteAudio(
     participantIdentity: string
@@ -1333,19 +1142,10 @@ class LiveKitService {
 
     try {
       element.pause();
-
       element.srcObject = null;
-
-      if (
-        element.isConnected
-      ) {
-        element.remove();
-      }
-    } catch (error) {
-      console.warn(
-        '[LIVEKIT][AUDIO] Remove warning:',
-        error
-      );
+      element.remove();
+    } catch {
+      // ignore
     }
 
     this.remoteAudioElements.delete(
@@ -1358,39 +1158,26 @@ class LiveKitService {
     );
   }
 
-  /**
-   * ========================================
-   * DISCONNECT
-   * ========================================
-   */
+  // =========================================================
+  // DISCONNECT
+  // =========================================================
 
   async disconnect() {
-    console.log(
-      '[LIVEKIT] ========================================'
-    );
-
     console.log(
       '[LIVEKIT] Disconnecting...'
     );
 
-    /**
-     * Xóa remote audio
-     */
-
-    for (const [
-      participantIdentity,
-      element,
-    ] of this.remoteAudioElements) {
+    for (
+      const [
+        participantIdentity,
+        element,
+      ]
+      of this.remoteAudioElements
+    ) {
       try {
         element.pause();
-
         element.srcObject = null;
-
-        if (
-          element.isConnected
-        ) {
-          element.remove();
-        }
+        element.remove();
       } catch {
         // ignore
       }
@@ -1402,10 +1189,6 @@ class LiveKitService {
     }
 
     this.remoteAudioElements.clear();
-
-    /**
-     * Disconnect room
-     */
 
     if (this.room) {
       try {
@@ -1422,37 +1205,30 @@ class LiveKitService {
 
     this.connected = false;
 
-    this.microphoneEnabled =
-      false;
+    this.microphoneEnabled = false;
+    this.microphoneWanted = false;
+    this.microphonePublishPromise = null;
+    this.signalConnected = false;
+
+    this.resetDebug();
 
     console.log(
       '[LIVEKIT] ✅ Disconnected'
     );
-
-    console.log(
-      '[LIVEKIT] ========================================'
-    );
   }
 
-  /**
-   * ========================================
-   * DESTROY
-   * ========================================
-   */
+  // =========================================================
+  // DESTROY
+  // =========================================================
 
   async destroy() {
-    console.log(
-      '[LIVEKIT] Destroying service...'
-    );
-
     await this.disconnect();
 
     this.config = null;
-
     this.callbacks = {};
 
     console.log(
-      '[LIVEKIT] ✅ Destroyed'
+      '[LIVEKIT] Destroyed'
     );
   }
 }
