@@ -16,7 +16,7 @@ export const BEGINNER_GUIDE: GuideSection[] = [
     content: [
       'Trò chơi chia người chơi thành các phe đối lập ngầm: Phe Dân Làng (bảo vệ ngôi làng), Phe Ma Sói (trà trộn và tiêu diệt dân làng), và Phe Độc Lập / Thứ Ba (mục tiêu riêng biệt).',
       'Game vận hành theo chu kỳ ngày và đêm luân phiên do Quản Trò (Authoritative Game Server) điều khiển tự động:',
-      '• BAN ĐÊM: Mọi người nhắm mắt, từng vai trò đặc biệt thức dậy trong bí mật để sử dụng kỹ năng (Sói cắn, Tiên Tri soi, Bảo Vệ hộ vệ, Phù Thủy dùng thuốc...).',
+      '• BAN ĐÊM: Mọi người nhắm mắt. Đêm đầu nếu có Thần Tình Yêu thì thức dậy đầu tiên để ghép cặp; sau đó Sói thảo luận bí mật bằng mic, rồi Kẻ Sát Nhân, Phù Thủy và các vai trò còn lại lần lượt/đồng loạt hành động theo thứ tự của máy chủ.',
       '• BAN NGÀY: Làng thức giấc nhận thông báo ai đã ngã xuống trong đêm. Các người chơi còn sống thảo luận, chất vấn, tìm kiếm manh mối và bỏ phiếu treo cổ một kẻ bị tình nghi nhiều nhất.',
     ],
     tips: [
@@ -35,7 +35,7 @@ export const BEGINNER_GUIDE: GuideSection[] = [
       '• Điều kiện thắng: Tiêu diệt dân làng đến khi số lượng Sói bằng hoặc lớn hơn số Dân còn sống.',
       '',
       '👨 PHE DÂN LÀNG (Village Team):',
-      'Bao gồm Dân Thường, Tiên Tri, Bảo Vệ, Phù Thủy, Thợ Săn, Già Làng, Cảnh Sát Trưởng, Nữ thần Liễu. Đa số không biết danh tính của nhau từ đầu.',
+      'Bao gồm Dân Thường, Thần Tình Yêu, Tiên Tri, Bảo Vệ, Phù Thủy, Thợ Săn, Già Làng, Cảnh Sát Trưởng, Nữ thần Liễu. Đa số không biết danh tính của nhau từ đầu; Thần Tình Yêu chỉ hoạt động ở đêm đầu.',
       '• Điều kiện thắng: Loại bỏ hoàn toàn tất cả Ma Sói và phe thù địch khỏi ngôi làng.',
       '',
       '☠️ PHE ĐỘC LẬP / THỨ BA (Neutral Team):',
@@ -48,12 +48,12 @@ export const BEGINNER_GUIDE: GuideSection[] = [
     icon: 'Sparkles',
     summary: 'Thứ tự ưu tiên xử lý kỹ năng ban đêm của máy chủ (Server Engine).',
     content: [
-      '1. Bầy Sói thức giấc: Thảo luận bí mật và chọn mục tiêu muốn cắn.',
-      '2. Tiên Tri soi: Chọn 1 người chơi để kiểm tra xem họ có thuộc Phe Sói hay không.',
-      '3. Bảo Vệ canh gác: Chọn 1 người để bảo vệ (người này sẽ không chết nếu bị Sói cắn).',
-      '4. Phù Thủy hành động: Nhận biết nạn nhân bị Sói cắn và quyết định dùng Bình Cứu hoặc Bình Độc (mỗi bình 1 lần duy nhất).',
-      '5. Kẻ Sát Nhân (nếu có): Ra tay ám sát 1 nạn nhân độc lập.',
-      '6. Server tổng hợp kết quả: Tính toán ai được cứu, ai bị trúng độc, ai tử vong trước khi trời sáng.',
+      '1. Đêm đầu tiên — Thần Tình Yêu (nếu có): Có 60 giây để chọn đúng 2 người ghép thành một cặp. Thần Tình Yêu và 2 người được ghép là 3 người duy nhất biết danh tính cặp đôi.',
+      '2. Ma Sói: Có 45 giây. Chỉ Sói còn sống được mở mic và nghe nhau. Sói không thể chọn Sói làm mục tiêu. Không có Sói Trưởng thì một Sói đề xuất, các Sói còn lại xác nhận; quá nửa số Sói đồng ý thì mục tiêu được chốt. Nếu bị bác hoặc hết giờ chưa có quyết định, hệ thống tự chọn một người hợp lệ. Nếu Sói Con đã chết từ vòng trước, đêm kế tiếp bầy Sói được chốt thêm mục tiêu thứ hai. Nếu có Sói Trưởng còn sống, chỉ Sói Trưởng quyết định cuối cùng.',
+      '3. Kẻ Sát Nhân (nếu có): Có 60 giây để chọn và xác nhận 1 người. Không chọn hoặc hết giờ thì mặc định không giết ai; chốt xong thì chuyển lượt ngay.',
+      '4. Phù Thủy: Được biết ai bị Sói cắn nhưng không được biết vai trò. Có 30 giây cho Bình Cứu; không cứu hoặc hết giờ thì chuyển sang 30 giây cho Bình Độc. Chọn và xác nhận Bình Độc thì chốt ngay; không dùng hoặc hết giờ thì không giết ai.',
+      '5. Tiên Tri + Bảo Vệ + Liễu: hoạt động đồng loạt trong 60 giây. Khi tất cả vai trò đang sống đã chọn xong thì hệ thống bỏ qua phần thời gian còn lại.',
+      '6. Server tổng hợp kết quả: Tính toán cứu, bảo vệ, độc, cắn và các hiệu ứng khác trước khi chuyển sang ban ngày.',
     ],
     tips: [
       'Nếu Bảo Vệ và Phù Thủy cùng cứu 1 người, người đó vẫn được an toàn.',

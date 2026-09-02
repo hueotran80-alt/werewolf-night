@@ -207,6 +207,30 @@ export const ROLES_DATABASE: Record<RoleId, RoleDefinition> = {
     },
     iconName: 'MicOff',
   },
+  CUPID: {
+    id: 'CUPID',
+    name: 'Cupid',
+    vietnameseName: 'Thần Tình Yêu',
+    team: 'VILLAGE',
+    nightPriority: 0,
+    description:
+      'Thần Tình Yêu thức dậy đầu tiên trong đêm đầu tiên và có 60 giây để ghép hai người chơi thành một cặp đôi bí mật.',
+    fullDescription:
+      'Trong đêm đầu tiên, Thần Tình Yêu thức dậy trước tất cả mọi vai trò khác. Thần Tình Yêu chọn hai người chơi để ghép cặp. Sau khi ghép, Thần Tình Yêu và hai người được ghép là ba người duy nhất biết danh tính cặp đôi.',
+    objective: 'Tạo ra cặp đôi bí mật và hỗ trợ phe Dân Làng.',
+    shortAbility: 'Chỉ đêm đầu: ghép 2 người thành cặp trong 60 giây.',
+    whenActive: 'Đêm đầu tiên',
+    usageLimit: '1 lần/trận',
+    maxPerGame: 1,
+    winCondition: 'Hoàn thành điều kiện thắng của Phe Dân Làng.',
+    colorScheme: {
+      primary: '#EC4899',
+      bgGlow: 'rgba(236, 72, 153, 0.18)',
+      border: 'border-pink-500/40',
+      badge: 'bg-pink-500/20 text-pink-300 border-pink-500/30',
+    },
+    iconName: 'Heart',
+  },
   WEREWOLF: {
     id: 'WEREWOLF',
     name: 'Werewolf',

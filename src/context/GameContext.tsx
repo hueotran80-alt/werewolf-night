@@ -28,6 +28,7 @@ import {
 import { soundManager } from '../services/soundService';
 import { liveKitService } from '../services/livekitService';
 import { safeStorage } from '../lib/storage';
+import { ROLES_DATABASE } from '../data/rolesData';
 import {
   getApiBaseUrl,
   getWsUrl,
@@ -1355,56 +1356,60 @@ export const GameProvider: React.FC<{
   ]);
 
   // ==========================================================================
-  // AUTO MUTE BY GAME PHASE
+  // NIGHT VOICE ACCESS
   // ==========================================================================
-
+  // During the Werewolf step, only living werewolves may hear/speak. In every
+  // other night step everyone is muted. The server enforces the same rule.
   useEffect(() => {
-    if (
-      gameState?.currentPhase ===
-        'NIGHT' ||
-      gameState?.currentPhase ===
-        'ROLE_REVEAL' ||
-      gameState?.currentPhase ===
-        'HUNTER_REVENGE'
-    ) {
-      if (
-        !isMyMicMuted &&
-        liveKitService.isConnected()
-      ) {
-        liveKitService
-          .disableMicrophone()
-          .then(() => {
-            setIsMyMicMuted(
-              true
-            );
+    if (!gameState || !currentRoom || !playerId) return;
 
-            setIsMySpeaking(
-              false
-            );
+    const isNight = gameState.currentPhase === 'NIGHT';
+    const isWolfStep =
+      isNight &&
+      gameState.nightState?.currentStep === 'WEREWOLF_HUNT' &&
+      !!myRole &&
+      ROLES_DATABASE[myRole]?.team === 'WEREWOLF' &&
+      !!myPlayer?.isAlive;
 
-            sendWs(
-              'VOICE_STATUS_UPDATE',
-              {
-                isMuted: true,
-                isSpeaking: false,
-                isDeafened:
-                  isMyDeafened,
-              }
-            );
-          })
-          .catch((err) => {
-            console.warn(
-              '[LIVEKIT] Phase mute failed:',
-              err
-            );
+    const isRoleReveal = gameState.currentPhase === 'ROLE_REVEAL';
+    const isHunterRevenge = gameState.currentPhase === 'HUNTER_REVENGE';
+
+    if (isNight || isRoleReveal || isHunterRevenge) {
+      const shouldMute = !isWolfStep;
+
+      if (shouldMute && !isMyMicMuted && liveKitService.isConnected()) {
+        liveKitService.disableMicrophone().then(() => {
+          setIsMyMicMuted(true);
+          setIsMySpeaking(false);
+          sendWs('VOICE_STATUS_UPDATE', {
+            isMuted: true,
+            isSpeaking: false,
+            isDeafened: isMyDeafened,
           });
+        }).catch(() => {});
+      } else if (shouldMute) {
+        sendWs('VOICE_STATUS_UPDATE', {
+          isMuted: true,
+          isSpeaking: false,
+          isDeafened: isMyDeafened,
+        });
       }
+
+      applyDeafenState(isNight && !isWolfStep);
+    } else {
+      applyDeafenState(isMyDeafened);
     }
   }, [
     gameState?.currentPhase,
+    gameState?.nightState?.currentStep,
+    myRole,
+    myPlayer?.isAlive,
+    playerId,
+    currentRoom,
     isMyMicMuted,
     isMyDeafened,
     sendWs,
+    applyDeafenState,
   ]);
 
   // ==========================================================================
@@ -1455,18 +1460,21 @@ export const GameProvider: React.FC<{
 
   const toggleMic =
     async (): Promise<boolean> => {
+      const canWolfTalk =
+        gameState?.currentPhase === 'NIGHT' &&
+        gameState?.nightState?.currentStep === 'WEREWOLF_HUNT' &&
+        !!myRole &&
+        ROLES_DATABASE[myRole]?.team === 'WEREWOLF' &&
+        !!myPlayer?.isAlive;
+
       if (
-        gameState?.currentPhase ===
-          'NIGHT' ||
-        gameState?.currentPhase ===
-          'ROLE_REVEAL' ||
-        gameState?.currentPhase ===
-          'HUNTER_REVENGE'
+        (gameState?.currentPhase === 'NIGHT' && !canWolfTalk) ||
+        gameState?.currentPhase === 'ROLE_REVEAL' ||
+        gameState?.currentPhase === 'HUNTER_REVENGE'
       ) {
         setError(
-          '🌙 Đêm đã xuống! Toàn bộ người chơi không thể mở mic để giữ bí mật.'
+          '🌙 Hiện tại chỉ Ma Sói được phép mở mic và nghe thảo luận của bầy.'
         );
-
         return false;
       }
 

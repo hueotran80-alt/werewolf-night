@@ -19,7 +19,8 @@ export type RoleId =
   | 'ALPHA_WOLF'
   | 'JESTER'
   | 'SERIAL_KILLER'
-  | 'TRAITOR';
+  | 'TRAITOR'
+  | 'CUPID';
 
 export type GamePhase =
   | 'LOBBY'
@@ -34,11 +35,14 @@ export type GamePhase =
   | 'GAME_OVER';
 
 export type NightStep =
+  | 'CUPID_PAIR'
   | 'WEREWOLF_HUNT'
+  | 'SERIAL_KILLER_HUNT'
+  | 'WITCH_HEAL'
+  | 'WITCH_POISON'
+  | 'OTHER_ROLES'
   | 'SEER_INVESTIGATE'
   | 'BODYGUARD_PROTECT'
-  | 'WITCH_DECISION'
-  | 'SERIAL_KILLER_HUNT'
   | 'LIEU_SILENCE'
   | 'HUNTER_SHOT'
   | 'NONE';
@@ -114,12 +118,17 @@ export interface RoomSettings {
 
 export interface GameAction {
   actionType:
+    | 'CUPID_PAIR'
     | 'WOLF_KILL'
+    | 'WOLF_CONFIRM'
     | 'SEER_CHECK'
     | 'BODYGUARD_GUARD'
     | 'WITCH_HEAL'
     | 'WITCH_POISON'
     | 'WITCH_SKIP'
+    | 'WITCH_DECLINE_HEAL'
+    | 'WITCH_DECLINE_POISON'
+    | 'SERIAL_KILL_SKIP'
     | 'SERIAL_KILL'
     | 'LIEU_SILENCE'
     | 'HUNTER_KILL'
@@ -132,8 +141,27 @@ export interface GameAction {
 export interface NightState {
   currentStep: NightStep;
   stepTimeRemaining: number;
+  stepStartedAt?: number;
+
+  // Cupid / lovers
+  cupidPlayerId?: string;
+  loverPair?: [string, string];
+
+  // Werewolves
+  werewolfProposalTarget?: string;
+  werewolfVotes: Record<string, string>; // legacy + per-target decisions
+  werewolfConfirmations: Record<string, boolean>;
+  werewolfKillTargets: string[];
+  werewolfKillIndex: number;
+  werewolfMaxKills: number;
   werewolfTarget?: string;
-  werewolfVotes: Record<string, string>; // wolfPlayerId -> targetPlayerId
+
+  // Witch receives only a victim identity (never the victim role)
+  witchVictimId?: string;
+  witchVictimName?: string;
+  witchVictimIds?: string[];
+  witchVictimNames?: string[];
+
   seerTarget?: string;
   seerResult?: {
     targetId: string;
@@ -148,6 +176,7 @@ export interface NightState {
   witchHasHeal: boolean;
   witchHasPoison: boolean;
   serialKillerTarget?: string;
+  serialKillerConfirmed?: boolean;
   lieuTarget?: string;
   hunterTarget?: string;
   nightVictims: string[];

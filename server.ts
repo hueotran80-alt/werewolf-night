@@ -66,7 +66,8 @@ function getSanitizedRoomForPlayer(room: RoomData, playerId: string): RoomData {
   const player = room.players.find((p) => p.id === playerId);
   const isGameOver = room.gameState?.currentPhase === 'GAME_OVER';
 
-  // Sanitize players: only reveal role if it's the player themselves, or if dead & revealRoleOnDeath, or if both are wolves, or game over
+  // Never send the authoritative night decisions to everybody. Only the
+  // actor(s) who need a field receive it.
   const sanitizedPlayers: Player[] = room.players.map((p) => {
     let roleToReveal: RoleId | undefined = undefined;
 
@@ -82,19 +83,99 @@ function getSanitizedRoomForPlayer(room: RoomData, playerId: string): RoomData {
       p.role &&
       ROLES_DATABASE[p.role]?.team === 'WEREWOLF'
     ) {
-      // Werewolves can see teammates
       roleToReveal = p.role;
     }
 
-    return {
-      ...p,
-      role: roleToReveal,
-    };
+    return { ...p, role: roleToReveal };
   });
+
+  const gs = room.gameState;
+  let sanitizedGameState: GameState | undefined = undefined;
+
+  if (gs) {
+    const ns = gs.nightState;
+    let safeNightState: any = undefined;
+
+    if (ns) {
+      safeNightState = {
+        currentStep: ns.currentStep,
+        stepTimeRemaining: ns.stepTimeRemaining,
+        stepStartedAt: ns.stepStartedAt,
+        nightVictims: ns.nightVictims,
+        witchHasHeal: false,
+        witchHasPoison: false,
+        witchSaved: false,
+        werewolfVotes: {},
+        werewolfConfirmations: {},
+        werewolfKillTargets: [],
+        werewolfKillIndex: ns.werewolfKillIndex,
+        werewolfMaxKills: ns.werewolfMaxKills,
+      };
+
+      // Cupid + both lovers are the only three people who receive pair info.
+      const pair = ns.loverPair || [];
+      if (
+        playerId === ns.cupidPlayerId ||
+        pair.includes(playerId)
+      ) {
+        safeNightState.loverPair = pair;
+        safeNightState.cupidPlayerId = ns.cupidPlayerId;
+      }
+
+      // Wolves can see the current proposal and confirmation state, but no
+      // non-wolf can see it.
+      if (
+        player?.role &&
+        ROLES_DATABASE[player.role]?.team === 'WEREWOLF'
+      ) {
+        safeNightState.werewolfProposalTarget = ns.werewolfProposalTarget;
+        safeNightState.werewolfTarget = ns.werewolfTarget;
+        safeNightState.werewolfVotes = ns.werewolfVotes;
+        safeNightState.werewolfConfirmations = ns.werewolfConfirmations;
+        safeNightState.werewolfKillTargets = ns.werewolfKillTargets;
+      }
+
+      if (player?.role === 'WITCH') {
+        safeNightState.witchHasHeal = ns.witchHasHeal;
+        safeNightState.witchHasPoison = ns.witchHasPoison;
+        safeNightState.witchSaved = ns.witchSaved;
+        safeNightState.witchVictimId = ns.witchVictimId;
+        safeNightState.witchVictimName = ns.witchVictimName;
+        safeNightState.witchVictimIds = ns.witchVictimIds;
+        safeNightState.witchVictimNames = ns.witchVictimNames;
+        safeNightState.witchPoisonTarget = ns.witchPoisonTarget;
+      }
+
+      if (player?.role === 'SEER') {
+        safeNightState.seerTarget = ns.seerTarget;
+        safeNightState.seerResult = ns.seerResult;
+      }
+
+      if (player?.role === 'BODYGUARD') {
+        safeNightState.bodyguardTarget = ns.bodyguardTarget;
+        safeNightState.lastGuardedPlayerId = ns.lastGuardedPlayerId;
+      }
+
+      if (player?.role === 'SERIAL_KILLER') {
+        safeNightState.serialKillerTarget = ns.serialKillerTarget;
+        safeNightState.serialKillerConfirmed = ns.serialKillerConfirmed;
+      }
+
+      if (player?.role === 'LIEU') {
+        safeNightState.lieuTarget = ns.lieuTarget;
+      }
+    }
+
+    sanitizedGameState = {
+      ...gs,
+      nightState: safeNightState,
+    };
+  }
 
   return {
     ...room,
     players: sanitizedPlayers,
+    gameState: sanitizedGameState,
   };
 }
 
@@ -332,254 +413,901 @@ function startGame(room: RoomData) {
   }, 8000);
 }
 
-// Start Night Phase
+// -----------------------------------------------------------------------------
+// NIGHT STATE MACHINE
+// -----------------------------------------------------------------------------
+// Night is a sequence of short, authoritative steps. The server owns the
+// timers; clients only submit decisions. This prevents different devices from
+// resolving the same night differently.
+//
+// 1) Night 1 + Cupid: 60s
+// 2) Werewolves: 45s (Alpha Wolf is the sole decider; otherwise consensus)
+// 3) Serial Killer: 60s
+// 4) Witch heal: 30s, then Witch poison: 30s
+// 5) Seer + Bodyguard + Lieu: simultaneous 60s
+// 6) Resolve night -> day
+//
+// A step advances immediately when every required player has submitted, or
+// when the step timer expires. A late packet from an old step is ignored.
+
+function getAlivePlayersByRole(room: RoomData, role: RoleId): Player[] {
+  return room.players.filter((p) => p.isAlive && p.role === role);
+}
+
+function getAliveWerewolves(room: RoomData): Player[] {
+  return room.players.filter(
+    (p) => p.isAlive && p.role && ROLES_DATABASE[p.role]?.team === 'WEREWOLF'
+  );
+}
+
+function getNightStepDuration(step: NightState['currentStep']): number {
+  switch (step) {
+    case 'CUPID_PAIR':
+      return 60;
+    case 'WEREWOLF_HUNT':
+      return 45;
+    case 'SERIAL_KILLER_HUNT':
+      return 60;
+    case 'WITCH_HEAL':
+    case 'WITCH_POISON':
+      return 30;
+    case 'OTHER_ROLES':
+      return 60;
+    default:
+      return 0;
+  }
+}
+
+function broadcastNight(room: RoomData) {
+  broadcastRoom(room.id, 'ROOM_STATE');
+}
+
+function forceNightVoice(room: RoomData, wolvesCanTalk: boolean) {
+  if (!room.voiceStates) room.voiceStates = {};
+
+  room.players.forEach((p) => {
+    const isWolf = !!p.role && ROLES_DATABASE[p.role]?.team === 'WEREWOLF';
+    const canTalk = wolvesCanTalk && p.isAlive && isWolf;
+
+    const existing = room.voiceStates![p.id] || {
+      playerId: p.id,
+      nickname: p.nickname,
+      isMuted: true,
+      isSpeaking: false,
+      isDeafened: false,
+      isSilenced: p.isSilenced,
+    };
+
+    room.voiceStates![p.id] = {
+      ...existing,
+      nickname: p.nickname,
+      isMuted: !canTalk,
+      isSpeaking: false,
+      // Non-wolves are also deafened while wolves are discussing. The client
+      // will restore normal hearing when the wolf step ends.
+      isDeafened: wolvesCanTalk ? !canTalk : false,
+      isSilenced: p.isSilenced,
+    };
+  });
+
+  broadcastRoom(room.id, 'VOICE_STATUS_UPDATE', {
+    voiceStates: room.voiceStates,
+  });
+  if (!wolvesCanTalk) {
+    broadcastRoom(room.id, 'VOICE_FORCE_MUTE_ALL');
+  }
+}
+
 function startNightPhase(room: RoomData) {
   if (!room.gameState) return;
 
-  // IMPORTANT: witchHasHeal / witchHasPoison / lastGuardedPlayerId must persist
-  // across the whole game (each potion is usable exactly ONCE per match), so we
-  // carry them over from the previous night instead of resetting every night.
   const prevNightState = room.gameState.nightState;
+  const round = room.gameState.roundNumber;
+
+  // A dead Wolf Pup from the immediately preceding round activates the next
+  // night's two-kill frenzy exactly once.
+  const wolfPupDiedPreviousRound = room.players.some(
+    (p) => p.role === 'WOLF_PUP' && !p.isAlive && p.deathRound === round - 1
+  );
 
   room.gameState.currentPhase = 'NIGHT';
-  room.gameState.phaseDuration = 35; // 35s night duration
-  room.gameState.phaseEndsAt = Date.now() + 35000;
-
   room.gameState.nightState = {
-    currentStep: 'WEREWOLF_HUNT',
-    stepTimeRemaining: 35,
+    currentStep: 'NONE',
+    stepTimeRemaining: 0,
+    stepStartedAt: Date.now(),
     werewolfVotes: {},
+    werewolfConfirmations: {},
+    werewolfKillTargets: [],
+    werewolfKillIndex: 0,
+    werewolfMaxKills: wolfPupDiedPreviousRound ? 2 : 1,
     witchSaved: false,
     witchHasHeal: prevNightState ? prevNightState.witchHasHeal : true,
     witchHasPoison: prevNightState ? prevNightState.witchHasPoison : true,
     lastGuardedPlayerId: prevNightState?.lastGuardedPlayerId,
     nightVictims: [],
+    witchVictimIds: [],
+    witchVictimNames: [],
   };
 
-  // Force mute all mics when night falls
-  if (room.voiceStates) {
-    Object.values(room.voiceStates).forEach((vs) => {
-      vs.isMuted = true;
-      vs.isSpeaking = false;
-    });
-  }
+  // Reset one-day silences before applying the new night's Liễu action.
+  room.players.forEach((p) => {
+    if (p.isSilenced && (p.silencedUntilRound || 0) < round) {
+      p.isSilenced = false;
+    }
+  });
 
   room.gameState.logs.push({
-    id: `log_night_${room.gameState.roundNumber}_${Date.now()}`,
-    round: room.gameState.roundNumber,
+    id: `log_night_${round}_${Date.now()}`,
+    round,
     phase: 'NIGHT',
     timestamp: Date.now(),
-    message: `🌙 Đêm thứ ${room.gameState.roundNumber} buông xuống... Toàn bộ mic tự động tắt! Ngôi làng chìm vào giấc ngủ u tối.`,
+    message: `🌙 Đêm thứ ${round} buông xuống...`,
     type: 'INFO',
     isPublic: true,
   });
 
   broadcastRoom(room.id, 'PHASE_CHANGED', { newPhase: 'NIGHT' });
-  broadcastRoom(room.id, 'VOICE_FORCE_MUTE_ALL');
 
-  // Auto trigger Bot Actions during Night
-  simulateBotNightActions(room);
-
-  // Night Timer Loop -> Resolve Night
-  setTimeout(() => {
-    if (room.gameState && room.gameState.currentPhase === 'NIGHT') {
-      resolveNightActions(room);
-    }
-  }, 35000);
+  // Cupid gets the first move only in Night 1.
+  if (round === 1 && getAlivePlayersByRole(room, 'CUPID').length > 0) {
+    enterNightStep(room, 'CUPID_PAIR');
+  } else {
+    enterNightStep(room, 'WEREWOLF_HUNT');
+  }
 }
 
-// Simulate Bot night decisions for quick testing
-function simulateBotNightActions(room: RoomData) {
+function handleNightStepTimeout(room: RoomData, step: NightState['currentStep']) {
+  const ns = room.gameState?.nightState;
+  if (!ns || room.gameState?.currentPhase !== 'NIGHT' || ns.currentStep !== step) return;
+
+  if (step === 'WEREWOLF_HUNT') {
+    // Explicit fallback: if the wolves have not reached a final decision when
+    // the timer expires, the server automatically chooses a valid non-wolf.
+    const candidates = room.players.filter(
+      (p) =>
+        p.isAlive &&
+        p.role &&
+        ROLES_DATABASE[p.role]?.team !== 'WEREWOLF' &&
+        !ns.werewolfKillTargets.includes(p.id)
+    );
+
+    if (candidates.length > 0) {
+      const target = candidates[Math.floor(Math.random() * candidates.length)];
+      finalizeWolfTarget(room, target.id);
+      if (ns.werewolfKillTargets.length >= ns.werewolfMaxKills) {
+        advanceNightStep(room);
+      }
+      return;
+    }
+  }
+
+  // Serial Killer, Witch and the simultaneous roles simply keep their default
+  // "no action" result when their timers expire.
+  advanceNightStep(room);
+}
+
+function enterNightStep(room: RoomData, step: NightState['currentStep']) {
+  if (!room.gameState?.nightState) return;
+
+  const ns = room.gameState.nightState;
+  const duration = getNightStepDuration(step);
+  ns.currentStep = step;
+  ns.stepTimeRemaining = duration;
+  ns.stepStartedAt = Date.now();
+
+  // Populate the private Witch briefing from the already-finalized wolf target(s).
+  if (step === 'WITCH_HEAL') {
+    const wolfVictims = ns.werewolfKillTargets
+      .map((id) => room.players.find((p) => p.id === id))
+      .filter((p): p is Player => !!p && p.isAlive);
+
+    ns.witchVictimIds = wolfVictims.map((p) => p.id);
+    ns.witchVictimNames = wolfVictims.map((p) => p.nickname);
+    ns.witchVictimId = ns.witchVictimIds[0];
+    ns.witchVictimName = ns.witchVictimNames[0];
+  }
+
+  room.gameState.phaseDuration = duration;
+  room.gameState.phaseEndsAt = Date.now() + duration * 1000;
+
+  // The only night step where voice is deliberately open is the Werewolf
+  // discussion. All other steps are private/silent.
+  forceNightVoice(room, step === 'WEREWOLF_HUNT');
+
+  broadcastRoom(room.id, 'PHASE_CHANGED', {
+    newPhase: 'NIGHT',
+    nightStep: step,
+    duration,
+  });
+  broadcastNight(room);
+
+  // Skip steps that have no living actor or no remaining ability.
+  if (
+    (step === 'CUPID_PAIR' && getAlivePlayersByRole(room, 'CUPID').length === 0) ||
+    (step === 'WEREWOLF_HUNT' && getAliveWerewolves(room).length === 0) ||
+    (step === 'SERIAL_KILLER_HUNT' && getAlivePlayersByRole(room, 'SERIAL_KILLER').length === 0) ||
+    (step === 'WITCH_HEAL' && (getAlivePlayersByRole(room, 'WITCH').length === 0 || !ns.witchHasHeal || !ns.witchVictimId)) ||
+    (step === 'WITCH_POISON' && (getAlivePlayersByRole(room, 'WITCH').length === 0 || !ns.witchHasPoison)) ||
+    (step === 'OTHER_ROLES' && getAliveActionRoles(room).length === 0)
+  ) {
+    advanceNightStep(room);
+    return;
+  }
+
+  simulateBotNightStep(room);
+
+  if (
+    room.gameState?.currentPhase === 'NIGHT' &&
+    room.gameState?.nightState?.currentStep === step &&
+    allRequiredNightActionsSubmitted(room)
+  ) {
+    advanceNightStep(room);
+    return;
+  }
+
+  if (duration <= 0) {
+    advanceNightStep(room);
+    return;
+  }
+
+  setTimeout(() => {
+    const current = room.gameState?.nightState;
+    if (
+      room.gameState?.currentPhase === 'NIGHT' &&
+      current?.currentStep === step &&
+      current.stepStartedAt === ns.stepStartedAt
+    ) {
+      handleNightStepTimeout(room, step);
+    }
+  }, duration * 1000 + 50);
+}
+
+function getAliveActionRoles(room: RoomData): RoleId[] {
+  const roles: RoleId[] = [];
+  (['SEER', 'BODYGUARD', 'LIEU'] as RoleId[]).forEach((role) => {
+    if (getAlivePlayersByRole(room, role).length > 0) roles.push(role);
+  });
+  return roles;
+}
+
+function advanceNightStep(room: RoomData) {
+  if (!room.gameState?.nightState) return;
+  const ns = room.gameState.nightState;
+
+  switch (ns.currentStep) {
+    case 'CUPID_PAIR':
+      enterNightStep(room, 'WEREWOLF_HUNT');
+      break;
+
+    case 'WEREWOLF_HUNT':
+      // If the wolf step timed out with no valid decision, no wolf victim is
+      // selected. For Wolf Pup frenzy, each accepted target is collected in
+      // separate consensus rounds.
+      enterNightStep(room, 'SERIAL_KILLER_HUNT');
+      break;
+
+    case 'SERIAL_KILLER_HUNT':
+      if (getAlivePlayersByRole(room, 'WITCH').length > 0) {
+        enterNightStep(room, 'WITCH_HEAL');
+      } else if (getAliveActionRoles(room).length > 0) {
+        enterNightStep(room, 'OTHER_ROLES');
+      } else {
+        resolveNightActions(room);
+      }
+      break;
+
+    case 'WITCH_HEAL':
+      if (getAlivePlayersByRole(room, 'WITCH').length > 0 && ns.witchHasPoison) {
+        enterNightStep(room, 'WITCH_POISON');
+      } else if (getAliveActionRoles(room).length > 0) {
+        enterNightStep(room, 'OTHER_ROLES');
+      } else {
+        resolveNightActions(room);
+      }
+      break;
+
+    case 'WITCH_POISON':
+      if (getAliveActionRoles(room).length > 0) {
+        enterNightStep(room, 'OTHER_ROLES');
+      } else {
+        resolveNightActions(room);
+      }
+      break;
+
+    case 'OTHER_ROLES':
+      resolveNightActions(room);
+      break;
+
+    default:
+      resolveNightActions(room);
+      break;
+  }
+}
+
+function simulateBotNightStep(room: RoomData) {
   const ns = room.gameState?.nightState;
   if (!ns) return;
 
-  const alivePlayers = room.players.filter((p) => p.isAlive);
-  const aliveBots = alivePlayers.filter((p) => p.isBot);
+  const bots = room.players.filter((p) => p.isAlive && p.isBot && p.role);
+  const alive = room.players.filter((p) => p.isAlive);
 
-  // Process Werewolf-team bots first so other roles (e.g. Witch) can react
-  // to a known werewolf target instead of an undecided one.
-  const sortedBots = [...aliveBots].sort((a, b) => {
-    const aIsWolf = a.role ? ROLES_DATABASE[a.role].team === 'WEREWOLF' : false;
-    const bIsWolf = b.role ? ROLES_DATABASE[b.role].team === 'WEREWOLF' : false;
-    return aIsWolf === bIsWolf ? 0 : aIsWolf ? -1 : 1;
-  });
-
-  sortedBots.forEach((bot) => {
-    const role = bot.role;
-    if (!role) return;
-
-    if (ROLES_DATABASE[role].team === 'WEREWOLF') {
-      // Pick a random non-wolf target
-      const targets = alivePlayers.filter((p) => p.role && ROLES_DATABASE[p.role].team !== 'WEREWOLF');
-      if (targets.length > 0) {
-        const target = targets[Math.floor(Math.random() * targets.length)];
-        ns.werewolfVotes[bot.id] = target.id;
-        ns.werewolfTarget = target.id;
-      }
-    } else if (role === 'SEER') {
-      const targets = alivePlayers.filter((p) => p.id !== bot.id);
-      if (targets.length > 0) {
-        ns.seerTarget = targets[Math.floor(Math.random() * targets.length)].id;
-      }
-    } else if (role === 'BODYGUARD') {
-      const targets = alivePlayers.filter((p) => p.id !== ns.lastGuardedPlayerId);
-      if (targets.length > 0) {
-        ns.bodyguardTarget = targets[Math.floor(Math.random() * targets.length)].id;
-      }
-    } else if (role === 'SERIAL_KILLER') {
-      const targets = alivePlayers.filter((p) => p.id !== bot.id);
-      if (targets.length > 0) {
-        ns.serialKillerTarget = targets[Math.floor(Math.random() * targets.length)].id;
-      }
-    } else if (role === 'LIEU') {
-      const targets = alivePlayers.filter((p) => p.id !== bot.id);
-      if (targets.length > 0) {
-        ns.lieuTarget = targets[Math.floor(Math.random() * targets.length)].id;
-      }
-    } else if (role === 'WITCH') {
-      // Bot Witch: decide whether to save the werewolves' victim, and whether to poison someone
-      if (ns.witchHasHeal && ns.werewolfTarget) {
-        // ~65% chance to use the Cứu Sinh potion when a victim is already known
-        if (Math.random() < 0.65) {
-          ns.witchSaved = true;
-          ns.witchHasHeal = false;
-        }
-      }
-
-      if (ns.witchHasPoison) {
-        // ~30% chance to use the Độc Dược potion on a random suspect (never on the werewolf victim already dying)
-        if (Math.random() < 0.3) {
-          const poisonTargets = alivePlayers.filter(
-            (p) => p.id !== bot.id && p.id !== ns.werewolfTarget
-          );
-          if (poisonTargets.length > 0) {
-            const poisoned = poisonTargets[Math.floor(Math.random() * poisonTargets.length)];
-            ns.witchPoisonTarget = poisoned.id;
-            ns.witchHasPoison = false;
-          }
-        }
+  if (ns.currentStep === 'CUPID_PAIR') {
+    const cupid = bots.find((p) => p.role === 'CUPID');
+    if (cupid) {
+      const targets = alive.filter((p) => p.id !== cupid.id);
+      if (targets.length >= 2) {
+        handleNightAction(room, cupid.id, {
+          actionType: 'CUPID_PAIR',
+          actorPlayerId: cupid.id,
+          targetPlayerId: targets[0].id,
+          extraData: { secondTargetPlayerId: targets[1].id },
+        });
       }
     }
-  });
+    return;
+  }
+
+  if (ns.currentStep === 'WEREWOLF_HUNT') {
+    const wolves = getAliveWerewolves(room);
+    const alpha = wolves.find((p) => p.role === 'ALPHA_WOLF');
+
+    // Alpha is the sole final decision maker.
+    if (alpha?.isBot) {
+      const targets = alive.filter(
+        (p) =>
+          p.role &&
+          ROLES_DATABASE[p.role]?.team !== 'WEREWOLF' &&
+          !ns.werewolfKillTargets.includes(p.id)
+      );
+      if (targets.length > 0) {
+        handleNightAction(room, alpha.id, {
+          actionType: 'WOLF_KILL',
+          actorPlayerId: alpha.id,
+          targetPlayerId: targets[Math.floor(Math.random() * targets.length)].id,
+        });
+      }
+      return;
+    }
+
+    // Without Alpha, the first bot wolf can propose a target. Other bot wolves
+    // automatically vote YES on that proposal.
+    const proposer = wolves.find((p) => p.isBot);
+    if (proposer && !ns.werewolfProposalTarget) {
+      const targets = alive.filter(
+        (p) =>
+          p.role &&
+          ROLES_DATABASE[p.role]?.team !== 'WEREWOLF' &&
+          !ns.werewolfKillTargets.includes(p.id)
+      );
+      if (targets.length > 0) {
+        handleNightAction(room, proposer.id, {
+          actionType: 'WOLF_KILL',
+          actorPlayerId: proposer.id,
+          targetPlayerId: targets[Math.floor(Math.random() * targets.length)].id,
+        });
+      }
+    }
+
+    if (ns.werewolfProposalTarget) {
+      wolves
+        .filter((p) => p.isBot && p.id !== proposer?.id)
+        .forEach((botWolf) => {
+          handleNightAction(room, botWolf.id, {
+            actionType: 'WOLF_CONFIRM',
+            actorPlayerId: botWolf.id,
+            targetPlayerId: ns.werewolfProposalTarget,
+            extraData: { confirmed: true },
+          });
+        });
+    }
+    return;
+  }
+
+  if (ns.currentStep === 'SERIAL_KILLER_HUNT') {
+    const sk = bots.find((p) => p.role === 'SERIAL_KILLER');
+    if (sk) {
+      const targets = alive.filter((p) => p.id !== sk.id);
+      if (targets.length > 0) {
+        handleNightAction(room, sk.id, {
+          actionType: 'SERIAL_KILL',
+          actorPlayerId: sk.id,
+          targetPlayerId: targets[Math.floor(Math.random() * targets.length)].id,
+        });
+      }
+    }
+    return;
+  }
+
+  if (ns.currentStep === 'WITCH_HEAL') {
+    const witch = bots.find((p) => p.role === 'WITCH');
+    if (witch && ns.witchHasHeal && ns.witchVictimId) {
+      // Bots preserve the same general behaviour as before, but the decision
+      // is now made in the correct sequential Witch step.
+      if (Math.random() < 0.65) {
+        handleNightAction(room, witch.id, {
+          actionType: 'WITCH_HEAL',
+          actorPlayerId: witch.id,
+        });
+      } else {
+        handleNightAction(room, witch.id, {
+          actionType: 'WITCH_DECLINE_HEAL',
+          actorPlayerId: witch.id,
+        });
+      }
+    }
+    return;
+  }
+
+  if (ns.currentStep === 'WITCH_POISON') {
+    const witch = bots.find((p) => p.role === 'WITCH');
+    if (witch && ns.witchHasPoison && Math.random() < 0.3) {
+      const targets = alive.filter(
+        (p) => p.id !== witch.id && p.id !== ns.witchVictimId
+      );
+      if (targets.length > 0) {
+        handleNightAction(room, witch.id, {
+          actionType: 'WITCH_POISON',
+          actorPlayerId: witch.id,
+          targetPlayerId: targets[Math.floor(Math.random() * targets.length)].id,
+        });
+      } else {
+        handleNightAction(room, witch.id, {
+          actionType: 'WITCH_DECLINE_POISON',
+          actorPlayerId: witch.id,
+        });
+      }
+    }
+    return;
+  }
+
+  if (ns.currentStep === 'OTHER_ROLES') {
+    bots.forEach((bot) => {
+      if (bot.role === 'SEER') {
+        const targets = alive.filter((p) => p.id !== bot.id);
+        if (targets.length > 0) {
+          handleNightAction(room, bot.id, {
+            actionType: 'SEER_CHECK',
+            actorPlayerId: bot.id,
+            targetPlayerId: targets[Math.floor(Math.random() * targets.length)].id,
+          });
+        }
+      } else if (bot.role === 'BODYGUARD') {
+        const targets = alive.filter((p) => p.id !== ns.lastGuardedPlayerId);
+        if (targets.length > 0) {
+          handleNightAction(room, bot.id, {
+            actionType: 'BODYGUARD_GUARD',
+            actorPlayerId: bot.id,
+            targetPlayerId: targets[Math.floor(Math.random() * targets.length)].id,
+          });
+        }
+      } else if (bot.role === 'LIEU') {
+        const targets = alive.filter((p) => p.id !== bot.id);
+        if (targets.length > 0) {
+          handleNightAction(room, bot.id, {
+            actionType: 'LIEU_SILENCE',
+            actorPlayerId: bot.id,
+            targetPlayerId: targets[Math.floor(Math.random() * targets.length)].id,
+          });
+        }
+      }
+    });
+  }
 }
 
-// Resolve Night Actions according to Authoritative Priority Engine
+function allRequiredNightActionsSubmitted(room: RoomData): boolean {
+  const ns = room.gameState?.nightState;
+  if (!ns) return true;
+
+  if (ns.currentStep === 'CUPID_PAIR') {
+    const cupid = getAlivePlayersByRole(room, 'CUPID')[0];
+    return !cupid || !!ns.loverPair;
+  }
+
+  if (ns.currentStep === 'WEREWOLF_HUNT') {
+    const wolves = getAliveWerewolves(room);
+    const alpha = wolves.find((p) => p.role === 'ALPHA_WOLF');
+
+    if (alpha) {
+      return ns.werewolfKillTargets.length >= ns.werewolfMaxKills;
+    }
+
+    if (wolves.length === 1) {
+      return ns.werewolfKillTargets.length >= ns.werewolfMaxKills;
+    }
+    if (!ns.werewolfProposalTarget) return false;
+
+    const otherWolves = wolves.filter((p) => p.id !== undefined);
+    const responders = otherWolves.filter((p) => p.id !== undefined);
+    const answered = responders.filter(
+      (p) => ns.werewolfConfirmations[p.id] !== undefined
+    );
+
+    // The proposer counts as an implicit YES. With two wolves, the second
+    // wolf's YES is therefore enough to form a majority.
+    const yes = 1 + answered.filter((p) => ns.werewolfConfirmations[p.id] === true).length;
+    const no = answered.filter((p) => ns.werewolfConfirmations[p.id] === false).length;
+    const total = wolves.length;
+
+    if (yes > total / 2) return true;
+    if (answered.length === total - 1 && no >= total / 2) return true;
+    return false;
+  }
+
+  if (ns.currentStep === 'SERIAL_KILLER_HUNT') {
+    const sk = getAlivePlayersByRole(room, 'SERIAL_KILLER')[0];
+    return !sk || !!ns.serialKillerConfirmed;
+  }
+
+  if (ns.currentStep === 'WITCH_HEAL') {
+    const witch = getAlivePlayersByRole(room, 'WITCH')[0];
+    return !witch || ns.witchHasHeal === false || ns.witchSaved || ns.witchPoisonTarget !== undefined;
+  }
+
+  if (ns.currentStep === 'WITCH_POISON') {
+    const witch = getAlivePlayersByRole(room, 'WITCH')[0];
+    return !witch || ns.witchHasPoison === false || ns.witchPoisonTarget !== undefined;
+  }
+
+  if (ns.currentStep === 'OTHER_ROLES') {
+    const roles = getAliveActionRoles(room);
+    return roles.every((role) => {
+      const actor = getAlivePlayersByRole(room, role)[0];
+      if (!actor) return true;
+      if (role === 'SEER') return !!ns.seerTarget;
+      if (role === 'BODYGUARD') return !!ns.bodyguardTarget;
+      if (role === 'LIEU') return !!ns.lieuTarget;
+      return true;
+    });
+  }
+
+  return true;
+}
+
+function resetWolfProposal(room: RoomData) {
+  const ns = room.gameState?.nightState;
+  if (!ns) return;
+
+  ns.werewolfProposalTarget = undefined;
+  ns.werewolfConfirmations = {};
+  ns.werewolfVotes = {};
+  ns.werewolfTarget = undefined;
+}
+
+function finalizeWolfTarget(room: RoomData, targetId: string): boolean {
+  const ns = room.gameState?.nightState;
+  if (!ns) return false;
+
+  const target = room.players.find((p) => p.id === targetId);
+  if (!target || !target.isAlive) return false;
+  if (target.role && ROLES_DATABASE[target.role]?.team === 'WEREWOLF') return false;
+
+  if (!ns.werewolfKillTargets.includes(targetId)) {
+    ns.werewolfKillTargets.push(targetId);
+  }
+  ns.werewolfTarget = targetId;
+
+  if (ns.werewolfKillTargets.length < ns.werewolfMaxKills) {
+    // Wolf Pup frenzy: start another 45-second consensus for the second bite.
+    resetWolfProposal(room);
+    enterNightStep(room, 'WEREWOLF_HUNT');
+  }
+
+  return true;
+}
+
+function handleNightAction(room: RoomData, playerId: string, action: GameAction) {
+  if (!room.gameState?.nightState || room.gameState.currentPhase !== 'NIGHT') return;
+
+  const ns = room.gameState.nightState;
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player || !player.isAlive || !player.role) return;
+
+  const isWolf = ROLES_DATABASE[player.role]?.team === 'WEREWOLF';
+
+  if (ns.currentStep === 'CUPID_PAIR' && action.actionType === 'CUPID_PAIR' && player.role === 'CUPID') {
+    const firstId = action.targetPlayerId;
+    const secondId = action.extraData?.secondTargetPlayerId;
+    const first = room.players.find((p) => p.id === firstId);
+    const second = room.players.find((p) => p.id === secondId);
+
+    if (!first || !second || !first.isAlive || !second.isAlive || first.id === second.id) return;
+    ns.loverPair = [first.id, second.id];
+    ns.cupidPlayerId = player.id;
+
+    // Only these three players receive the pair identity.
+    const partnerOf = (id: string) => (id === first.id ? second : first);
+    [player, first, second].forEach((recipient) => {
+      sendToPlayer(recipient.id, 'ACTION_RESULT', {
+        actionType: 'CUPID_PAIR',
+        partnerId: partnerOf(recipient.id).id,
+        partnerName: partnerOf(recipient.id).nickname,
+        message:
+          recipient.id === player.id
+            ? `💘 Bạn đã ghép ${first.nickname} ❤️ ${second.nickname}. Chỉ bạn và hai người này biết cặp đôi.`
+            : `💘 Bạn đã được ghép cặp với ${partnerOf(recipient.id).nickname}. Chỉ bạn, người kia và Thần Tình Yêu biết điều này.`,
+      });
+    });
+
+    broadcastNight(room);
+    advanceNightStep(room);
+    return;
+  }
+
+  if (ns.currentStep === 'WEREWOLF_HUNT' && isWolf) {
+    const alpha = getAliveWerewolves(room).find((p) => p.role === 'ALPHA_WOLF');
+
+    if (action.actionType === 'WOLF_KILL' && action.targetPlayerId) {
+      const target = room.players.find((p) => p.id === action.targetPlayerId);
+      if (!target || !target.isAlive) return;
+      if (target.role && ROLES_DATABASE[target.role]?.team === 'WEREWOLF') {
+        sendToPlayer(playerId, 'ERROR', { message: '🐺 Không thể chọn Ma Sói làm mục tiêu.' });
+        return;
+      }
+      if (ns.werewolfKillTargets.includes(target.id)) {
+        sendToPlayer(playerId, 'ERROR', { message: '🐺 Sói Con đang cuồng nộ: mục tiêu thứ hai phải là một người khác.' });
+        return;
+      }
+
+      if (alpha) {
+        if (player.id !== alpha.id) {
+          sendToPlayer(playerId, 'ERROR', { message: '🐺 Sói Trưởng là người quyết định cuối cùng.' });
+          return;
+        }
+
+        finalizeWolfTarget(room, target.id);
+        if (ns.werewolfKillTargets.length >= ns.werewolfMaxKills) {
+          advanceNightStep(room);
+        }
+        return;
+      }
+
+      // First wolf to submit creates the single proposal.
+      if (!ns.werewolfProposalTarget) {
+        if (getAliveWerewolves(room).length === 1) {
+          finalizeWolfTarget(room, target.id);
+          if (ns.werewolfKillTargets.length >= ns.werewolfMaxKills) {
+            advanceNightStep(room);
+          }
+          return;
+        }
+
+        ns.werewolfProposalTarget = target.id;
+        ns.werewolfTarget = target.id;
+        ns.werewolfVotes[player.id] = target.id;
+        broadcastNight(room);
+        return;
+      }
+
+      return;
+    }
+
+    if (
+      action.actionType === 'WOLF_CONFIRM' &&
+      ns.werewolfProposalTarget &&
+      player.id !== undefined &&
+      action.targetPlayerId === ns.werewolfProposalTarget
+    ) {
+      // The proposer is already an implicit YES and cannot vote twice.
+      const proposerId = Object.keys(ns.werewolfVotes)[0];
+      if (player.id === proposerId) return;
+
+      ns.werewolfConfirmations[player.id] = action.extraData?.confirmed === true;
+
+      const wolves = getAliveWerewolves(room);
+      const yes =
+        1 +
+        wolves.filter(
+          (p) => p.id !== proposerId && ns.werewolfConfirmations[p.id] === true
+        ).length;
+      const answeredOthers = wolves.filter(
+        (p) => p.id !== proposerId && ns.werewolfConfirmations[p.id] !== undefined
+      );
+      const no = answeredOthers.filter(
+        (p) => ns.werewolfConfirmations[p.id] === false
+      ).length;
+
+      if (yes > wolves.length / 2) {
+        finalizeWolfTarget(room, ns.werewolfProposalTarget);
+        if (ns.werewolfKillTargets.length >= ns.werewolfMaxKills) {
+          advanceNightStep(room);
+        }
+      } else if (
+        answeredOthers.length === wolves.length - 1 &&
+        no >= wolves.length / 2
+      ) {
+        // Proposal rejected. Wolves must make a new decision; the same target
+        // is not locked in.
+        resetWolfProposal(room);
+        broadcastNight(room);
+      } else {
+        broadcastNight(room);
+      }
+      return;
+    }
+
+    return;
+  }
+
+  if (ns.currentStep === 'SERIAL_KILLER_HUNT' && player.role === 'SERIAL_KILLER') {
+    if (action.actionType === 'SERIAL_KILL' && action.targetPlayerId) {
+      const target = room.players.find((p) => p.id === action.targetPlayerId);
+      if (target?.isAlive && target.id !== player.id) {
+        ns.serialKillerTarget = target.id;
+        ns.serialKillerConfirmed = true;
+        broadcastNight(room);
+        advanceNightStep(room);
+      }
+    } else if (action.actionType === 'SERIAL_KILL_SKIP') {
+      ns.serialKillerTarget = undefined;
+      ns.serialKillerConfirmed = true;
+      broadcastNight(room);
+      advanceNightStep(room);
+    }
+    return;
+  }
+
+  if (ns.currentStep === 'WITCH_HEAL' && player.role === 'WITCH') {
+    if (action.actionType === 'WITCH_HEAL' && ns.witchHasHeal && ns.witchVictimId) {
+      ns.witchSaved = true;
+      ns.witchHasHeal = false;
+      broadcastNight(room);
+      advanceNightStep(room);
+    } else if (
+      action.actionType === 'WITCH_DECLINE_HEAL' ||
+      action.actionType === 'WITCH_SKIP'
+    ) {
+      // "No" does not consume the potion.
+      broadcastNight(room);
+      advanceNightStep(room);
+    }
+    return;
+  }
+
+  if (ns.currentStep === 'WITCH_POISON' && player.role === 'WITCH') {
+    if (
+      action.actionType === 'WITCH_POISON' &&
+      ns.witchHasPoison &&
+      action.targetPlayerId
+    ) {
+      const target = room.players.find((p) => p.id === action.targetPlayerId);
+      if (target?.isAlive && target.id !== player.id) {
+        ns.witchPoisonTarget = target.id;
+        ns.witchHasPoison = false;
+        broadcastNight(room);
+        advanceNightStep(room);
+      }
+    } else if (
+      action.actionType === 'WITCH_DECLINE_POISON' ||
+      action.actionType === 'WITCH_SKIP'
+    ) {
+      broadcastNight(room);
+      advanceNightStep(room);
+    }
+    return;
+  }
+
+  if (ns.currentStep === 'OTHER_ROLES') {
+    if (action.actionType === 'SEER_CHECK' && player.role === 'SEER' && action.targetPlayerId) {
+      const target = room.players.find((p) => p.id === action.targetPlayerId);
+      if (!target?.isAlive || target.id === player.id) return;
+      ns.seerTarget = target.id;
+      const isWolf = !!target.role && ROLES_DATABASE[target.role]?.team === 'WEREWOLF';
+      sendToPlayer(playerId, 'ACTION_RESULT', {
+        actionType: 'SEER_CHECK',
+        targetName: target.nickname,
+        isWerewolf: isWolf,
+      });
+      broadcastNight(room);
+      if (allRequiredNightActionsSubmitted(room)) advanceNightStep(room);
+      return;
+    }
+
+    if (action.actionType === 'BODYGUARD_GUARD' && player.role === 'BODYGUARD' && action.targetPlayerId) {
+      if (
+        !room.settings.allowSelfProtectConsecutive &&
+        ns.lastGuardedPlayerId === action.targetPlayerId
+      ) {
+        sendToPlayer(playerId, 'ERROR', {
+          message: 'Không thể bảo vệ cùng 1 người trong 2 đêm liên tiếp.',
+        });
+        return;
+      }
+      const target = room.players.find((p) => p.id === action.targetPlayerId);
+      if (!target?.isAlive) return;
+      ns.bodyguardTarget = target.id;
+      ns.lastGuardedPlayerId = target.id;
+      broadcastNight(room);
+      if (allRequiredNightActionsSubmitted(room)) advanceNightStep(room);
+      return;
+    }
+
+    if (action.actionType === 'LIEU_SILENCE' && player.role === 'LIEU' && action.targetPlayerId) {
+      const target = room.players.find((p) => p.id === action.targetPlayerId);
+      if (!target?.isAlive || target.id === player.id) return;
+      ns.lieuTarget = target.id;
+      sendToPlayer(playerId, 'ACTION_RESULT', {
+        actionType: 'LIEU_SILENCE',
+        targetName: target.nickname,
+        success: true,
+      });
+      broadcastNight(room);
+      if (allRequiredNightActionsSubmitted(room)) advanceNightStep(room);
+      return;
+    }
+  }
+}
+
 function resolveNightActions(room: RoomData) {
-  if (!room.gameState || !room.gameState.nightState) return;
+  if (!room.gameState?.nightState) return;
 
   const ns = room.gameState.nightState;
   const victims: { playerId: string; playerName: string; roleName?: string; reason: string }[] = [];
 
-  // 1. Werewolf consensus target
-  let wolfKillTargetId: string | undefined = undefined;
-  const wolfVoteCounts: Record<string, number> = {};
+  // 1. Resolve every accepted wolf target. The Wolf Pup frenzy can create two.
+  ns.werewolfKillTargets.slice(0, ns.werewolfMaxKills).forEach((targetId) => {
+    const targetPlayer = room.players.find((p) => p.id === targetId);
+    if (!targetPlayer || !targetPlayer.isAlive) return;
 
-  Object.entries(ns.werewolfVotes).forEach(([wolfId, targetId]) => {
-    const wolfPlayer = room.players.find((p) => p.id === wolfId);
-    const weight = wolfPlayer?.role === 'ALPHA_WOLF' ? 2 : 1;
-    wolfVoteCounts[targetId] = (wolfVoteCounts[targetId] || 0) + weight;
-  });
-
-  let maxVotes = 0;
-  Object.entries(wolfVoteCounts).forEach(([targetId, count]) => {
-    if (count > maxVotes) {
-      maxVotes = count;
-      wolfKillTargetId = targetId;
-    }
-  });
-
-  // Check Bodyguard protection
-  const isProtectedByBodyguard = (targetId: string) => ns.bodyguardTarget === targetId;
-
-  // Process Wolf Kill
-  if (wolfKillTargetId) {
-    const targetPlayer = room.players.find((p) => p.id === wolfKillTargetId);
-    if (targetPlayer && targetPlayer.isAlive) {
-      if (targetPlayer.role === 'SERIAL_KILLER') {
-        // Serial killer is immune to wolf attack
-        room.gameState.logs.push({
-          id: `log_immune_${Date.now()}`,
-          round: room.gameState.roundNumber,
-          phase: 'NIGHT',
-          timestamp: Date.now(),
-          message: 'Ma Sói đã tấn công nhưng mục tiêu có lớp giáp bí ẩn không thể xuyên thủng!',
-          type: 'INFO',
-          isPublic: false,
-        });
-      } else if (isProtectedByBodyguard(wolfKillTargetId)) {
-        // Protected by bodyguard
-        room.gameState.logs.push({
-          id: `log_bg_${Date.now()}`,
-          round: room.gameState.roundNumber,
-          phase: 'NIGHT',
-          timestamp: Date.now(),
-          message: 'Bảo Vệ đã bảo vệ thành công một nạn nhân khỏi nanh vuốt Ma Sói!',
-          type: 'INFO',
-          isPublic: false,
-        });
-      } else if (ns.witchSaved && ns.werewolfTarget === wolfKillTargetId) {
-        // Saved by Witch Potion
-        room.gameState.logs.push({
-          id: `log_witch_save_${Date.now()}`,
-          round: room.gameState.roundNumber,
-          phase: 'NIGHT',
-          timestamp: Date.now(),
-          message: 'Phù Thủy đã kịp thời rót Thuốc Cứu Sinh giải thoát nạn nhân khỏi tay tử thần!',
-          type: 'INFO',
-          isPublic: false,
-        });
-      } else if (targetPlayer.role === 'ELDER' && (targetPlayer.protectedCount || 0) === 0) {
-        // Elder first life absorbed
-        targetPlayer.protectedCount = 1;
-        room.gameState.logs.push({
-          id: `log_elder_${Date.now()}`,
-          round: room.gameState.roundNumber,
-          phase: 'NIGHT',
-          timestamp: Date.now(),
-          message: 'Già Làng đã chống chọi kiên cường và thoát chết trong gang tấc nhờ sinh lực dẻo dai!',
-          type: 'INFO',
-          isPublic: false,
-        });
-      } else {
-        // Victim dies
-        targetPlayer.isAlive = false;
-        targetPlayer.deathReason = 'Bị Ma Sói cắn xé';
-        targetPlayer.deathRound = room.gameState.roundNumber;
-        targetPlayer.deathPhase = 'NIGHT';
-        victims.push({
-          playerId: targetPlayer.id,
-          playerName: targetPlayer.nickname,
-          roleName: ROLES_DATABASE[targetPlayer.role!]?.vietnameseName,
-          reason: 'Bị Ma Sói cắn xé trong đêm',
-        });
-      }
-    }
-  }
-
-  // 2. Process Witch Poison
-  if (ns.witchPoisonTarget) {
-    const poisonTarget = room.players.find((p) => p.id === ns.witchPoisonTarget);
-    if (poisonTarget && poisonTarget.isAlive) {
-      poisonTarget.isAlive = false;
-      poisonTarget.deathReason = 'Trúng độc dược Phù Thủy';
-      poisonTarget.deathRound = room.gameState.roundNumber;
-      poisonTarget.deathPhase = 'NIGHT';
+    if (targetPlayer.role === 'SERIAL_KILLER') {
+      room.gameState!.logs.push({
+        id: `log_immune_${Date.now()}_${targetId}`,
+        round: room.gameState!.roundNumber,
+        phase: 'NIGHT',
+        timestamp: Date.now(),
+        message: 'Ma Sói đã tấn công nhưng mục tiêu có lớp giáp bí ẩn không thể xuyên thủng!',
+        type: 'INFO',
+        isPublic: false,
+      });
+    } else if (ns.bodyguardTarget === targetId) {
+      room.gameState!.logs.push({
+        id: `log_bg_${Date.now()}_${targetId}`,
+        round: room.gameState!.roundNumber,
+        phase: 'NIGHT',
+        timestamp: Date.now(),
+        message: 'Bảo Vệ đã bảo vệ thành công một nạn nhân khỏi nanh vuốt Ma Sói!',
+        type: 'INFO',
+        isPublic: false,
+      });
+    } else if (ns.witchSaved && ns.witchVictimId === targetId) {
+      room.gameState!.logs.push({
+        id: `log_witch_save_${Date.now()}_${targetId}`,
+        round: room.gameState!.roundNumber,
+        phase: 'NIGHT',
+        timestamp: Date.now(),
+        message: 'Phù Thủy đã kịp thời rót Thuốc Cứu Sinh giải thoát nạn nhân khỏi tay tử thần!',
+        type: 'INFO',
+        isPublic: false,
+      });
+    } else if (targetPlayer.role === 'ELDER' && (targetPlayer.protectedCount || 0) === 0) {
+      targetPlayer.protectedCount = 1;
+      room.gameState!.logs.push({
+        id: `log_elder_${Date.now()}_${targetId}`,
+        round: room.gameState!.roundNumber,
+        phase: 'NIGHT',
+        timestamp: Date.now(),
+        message: 'Già Làng đã chống chọi kiên cường và thoát chết trong gang tấc nhờ sinh lực dẻo dai!',
+        type: 'INFO',
+        isPublic: false,
+      });
+    } else {
+      targetPlayer.isAlive = false;
+      targetPlayer.deathReason = 'Bị Ma Sói cắn xé';
+      targetPlayer.deathRound = room.gameState!.roundNumber;
+      targetPlayer.deathPhase = 'NIGHT';
       victims.push({
-        playerId: poisonTarget.id,
-        playerName: poisonTarget.nickname,
-        roleName: ROLES_DATABASE[poisonTarget.role!]?.vietnameseName,
-        reason: 'Bị trúng độc dược bí ẩn',
+        playerId: targetPlayer.id,
+        playerName: targetPlayer.nickname,
+        roleName: ROLES_DATABASE[targetPlayer.role!]?.vietnameseName,
+        reason: 'Bị Ma Sói cắn xé trong đêm',
       });
     }
-  }
+  });
 
-  // 3. Process Serial Killer
+  // 2. Serial Killer acts after the wolves.
   if (ns.serialKillerTarget) {
     const skTarget = room.players.find((p) => p.id === ns.serialKillerTarget);
     if (skTarget && skTarget.isAlive) {
-      if (isProtectedByBodyguard(skTarget.id)) {
-        // Bodyguard blocked
-      } else {
+      if (ns.bodyguardTarget !== skTarget.id) {
         skTarget.isAlive = false;
         skTarget.deathReason = 'Bị Kẻ Sát Nhân ám sát';
         skTarget.deathRound = room.gameState.roundNumber;
@@ -596,49 +1324,50 @@ function resolveNightActions(room: RoomData) {
     }
   }
 
-  // 4. Process Liễu (Willow Silencer)
-  // Clear any past round silences
-  room.players.forEach((p) => {
-    if (p.isSilenced && (p.silencedUntilRound || 0) < room.gameState!.roundNumber) {
-      p.isSilenced = false;
+  // 3. Witch poison is applied after the Witch decision.
+  if (ns.witchPoisonTarget) {
+    const poisonTarget = room.players.find((p) => p.id === ns.witchPoisonTarget);
+    if (poisonTarget && poisonTarget.isAlive) {
+      poisonTarget.isAlive = false;
+      poisonTarget.deathReason = 'Trúng độc dược Phù Thủy';
+      poisonTarget.deathRound = room.gameState.roundNumber;
+      poisonTarget.deathPhase = 'NIGHT';
+      if (!victims.some((v) => v.playerId === poisonTarget.id)) {
+        victims.push({
+          playerId: poisonTarget.id,
+          playerName: poisonTarget.nickname,
+          roleName: ROLES_DATABASE[poisonTarget.role!]?.vietnameseName,
+          reason: 'Bị trúng độc dược bí ẩn',
+        });
+      }
     }
-  });
+  }
 
+  // 4. Apply Liễu after all simultaneous actions are known.
   if (ns.lieuTarget) {
     const lieuTargetPlayer = room.players.find((p) => p.id === ns.lieuTarget);
     if (lieuTargetPlayer && lieuTargetPlayer.isAlive) {
       lieuTargetPlayer.isSilenced = true;
       lieuTargetPlayer.silencedUntilRound = room.gameState.roundNumber;
 
-      // Force mute silenced player in voiceStates
-      if (room.voiceStates && room.voiceStates[lieuTargetPlayer.id]) {
+      if (room.voiceStates?.[lieuTargetPlayer.id]) {
         room.voiceStates[lieuTargetPlayer.id].isMuted = true;
         room.voiceStates[lieuTargetPlayer.id].isSpeaking = false;
         room.voiceStates[lieuTargetPlayer.id].isSilenced = true;
       }
-
-      room.gameState.logs.push({
-        id: `log_lieu_${Date.now()}`,
-        round: room.gameState.roundNumber,
-        phase: 'NIGHT',
-        timestamp: Date.now(),
-        message: `🤐 Nữ Thần Liễu đã niệm chú phong ấn câm lặng lên ${lieuTargetPlayer.nickname}! Người này bị khóa mic và cấm chat trong suốt ngày hôm nay.`,
-        type: 'WARNING',
-        isPublic: true,
-      });
     }
   }
 
-  // Save victims to GameState
   room.gameState.lastNightVictims = victims;
 
-  // Check if Hunter was killed -> Hunter revenge shot
+  // Witch needs to know who was bitten before the Witch step begins. The victim
+  // is stored privately and only exposed to the Witch by sanitization.
+  // (The value is assigned below for the next night only through the same state.)
   const killedHunter = victims.find((v) => {
     const p = room.players.find((x) => x.id === v.playerId);
     return p?.role === 'HUNTER';
   });
 
-  // Check victory
   const victoryCheck = checkVictory(room);
   if (victoryCheck.gameOver) {
     triggerGameOver(room, victoryCheck.winner!, victoryCheck.message!);
@@ -646,13 +1375,13 @@ function resolveNightActions(room: RoomData) {
   }
 
   if (killedHunter) {
-    // Transition to Hunter Revenge phase
     triggerHunterRevenge(room, killedHunter.playerId);
   } else {
-    // Transition to Day Announcement
     startDayPhase(room);
   }
 }
+
+// -----------------------------------------------------------------------------
 
 // Trigger Hunter revenge shot
 function triggerHunterRevenge(room: RoomData, hunterPlayerId: string) {
@@ -1077,80 +1806,8 @@ wss.on('connection', (ws: WebSocket, req) => {
           const room = rooms.get(roomId);
           if (!room || !room.gameState || room.gameState.currentPhase !== 'NIGHT') return;
 
-          const player = room.players.find((p) => p.id === playerId);
-          if (!player || !player.isAlive || !player.role) return;
-
           const action: GameAction = payload;
-          const ns = room.gameState.nightState;
-          if (!ns) return;
-
-          if (action.actionType === 'WOLF_KILL' && ROLES_DATABASE[player.role].team === 'WEREWOLF') {
-            if (action.targetPlayerId) {
-              ns.werewolfVotes[player.id] = action.targetPlayerId;
-              ns.werewolfTarget = action.targetPlayerId;
-              broadcastRoom(roomId, 'ROOM_STATE');
-            }
-          } else if (action.actionType === 'SEER_CHECK' && player.role === 'SEER') {
-            if (action.targetPlayerId) {
-              ns.seerTarget = action.targetPlayerId;
-              const target = room.players.find((p) => p.id === action.targetPlayerId);
-              const isWolf = target?.role ? ROLES_DATABASE[target.role].team === 'WEREWOLF' : false;
-
-              sendToPlayer(playerId, 'ACTION_RESULT', {
-                actionType: 'SEER_CHECK',
-                targetName: target?.nickname || 'Mục tiêu',
-                isWerewolf: isWolf,
-              });
-            }
-          } else if (action.actionType === 'BODYGUARD_GUARD' && player.role === 'BODYGUARD') {
-            if (action.targetPlayerId) {
-              if (!room.settings.allowSelfProtectConsecutive && ns.lastGuardedPlayerId === action.targetPlayerId) {
-                sendToPlayer(playerId, 'ERROR', { message: 'Không thể bảo vệ cùng 1 người trong 2 đêm liên tiếp.' });
-                return;
-              }
-              ns.bodyguardTarget = action.targetPlayerId;
-              ns.lastGuardedPlayerId = action.targetPlayerId;
-            }
-          } else if (action.actionType === 'WITCH_HEAL' && player.role === 'WITCH') {
-            if (ns.witchHasHeal) {
-              ns.witchSaved = true;
-              ns.witchHasHeal = false;
-            }
-          } else if (action.actionType === 'WITCH_POISON' && player.role === 'WITCH') {
-            if (ns.witchHasPoison && action.targetPlayerId) {
-              ns.witchPoisonTarget = action.targetPlayerId;
-              ns.witchHasPoison = false;
-            }
-          } else if (action.actionType === 'SERIAL_KILL' && player.role === 'SERIAL_KILLER') {
-            if (action.targetPlayerId) {
-              ns.serialKillerTarget = action.targetPlayerId;
-            }
-          } else if (action.actionType === 'LIEU_SILENCE' && player.role === 'LIEU') {
-            if (action.targetPlayerId) {
-              ns.lieuTarget = action.targetPlayerId;
-              const target = room.players.find((p) => p.id === action.targetPlayerId);
-              sendToPlayer(playerId, 'ACTION_RESULT', {
-                actionType: 'LIEU_SILENCE',
-                targetName: target?.nickname || 'Mục tiêu',
-                success: true,
-              });
-            }
-          } else if (action.actionType === 'HUNTER_KILL' && player.role === 'HUNTER') {
-            if (action.targetPlayerId) {
-              const target = room.players.find((p) => p.id === action.targetPlayerId);
-              if (target && target.isAlive) {
-                target.isAlive = false;
-                target.deathReason = 'Bị Thợ Săn bắn gục';
-                room.gameState.lastNightVictims.push({
-                  playerId: target.id,
-                  playerName: target.nickname,
-                  roleName: ROLES_DATABASE[target.role!]?.vietnameseName,
-                  reason: 'Bị phát đạn thù hận của Thợ Săn bắn hạ',
-                });
-                startDayPhase(room);
-              }
-            }
-          }
+          handleNightAction(room, playerId, action);
           break;
         }
 
@@ -1240,30 +1897,36 @@ wss.on('connection', (ws: WebSocket, req) => {
           const isDeafenedReq = !!payload?.isDeafened;
 
           const currentPhase = room.gameState?.currentPhase;
-          const isNightTime = currentPhase === 'NIGHT' || currentPhase === 'ROLE_REVEAL' || currentPhase === 'HUNTER_REVENGE';
+          const nightStep = room.gameState?.nightState?.currentStep;
+          const isWolfDiscussion =
+            currentPhase === 'NIGHT' &&
+            nightStep === 'WEREWOLF_HUNT' &&
+            !!player.role &&
+            ROLES_DATABASE[player.role]?.team === 'WEREWOLF' &&
+            player.isAlive;
 
           let effectiveMuted = isMutedReq;
           let effectiveSpeaking = isSpeakingReq;
+          let effectiveDeafened = isDeafenedReq;
 
-          // Rule 1: Night time - ALL mics forced off
-          if (isNightTime && !effectiveMuted) {
-            effectiveMuted = true;
-            effectiveSpeaking = false;
-            sendToPlayer(playerId, 'ERROR', { message: '🌙 Màn đêm buông xuống! Toàn bộ mic bị vô hiệu hóa để bảo đảm bí mật đêm.' });
-          }
-
-          // Rule 2: Silenced by Liễu - cannot unmute during day
-          if (player.isSilenced && !effectiveMuted && currentPhase !== 'LOBBY') {
-            effectiveMuted = true;
-            effectiveSpeaking = false;
-            sendToPlayer(playerId, 'ERROR', { message: '🤐 Bạn đang bị Liễu phong ấn câm lặng! Không thể mở mic trong ngày hôm nay.' });
-          }
-
-          // Rule 3: Dead players in active game cannot speak in living discussion
-          if (!player.isAlive && !effectiveMuted && currentPhase && currentPhase !== 'LOBBY' && currentPhase !== 'GAME_OVER') {
-            effectiveMuted = true;
-            effectiveSpeaking = false;
-            sendToPlayer(playerId, 'ERROR', { message: '👻 Linh hồn người đã chết không thể mở mic nói chuyện với người sống.' });
+          // Night rule: only living werewolves may use voice during the wolf
+          // discussion. Everyone else is muted and cannot listen.
+          if (
+            currentPhase === 'NIGHT' ||
+            currentPhase === 'ROLE_REVEAL' ||
+            currentPhase === 'HUNTER_REVENGE'
+          ) {
+            if (!isWolfDiscussion) {
+              effectiveMuted = true;
+              effectiveSpeaking = false;
+              if (currentPhase === 'NIGHT') effectiveDeafened = true;
+            } else {
+              // Wolves may choose to deafen themselves, but are never forced
+              // muted during their 45-second discussion.
+              effectiveMuted = isMutedReq;
+              effectiveSpeaking = effectiveMuted ? false : isSpeakingReq;
+              effectiveDeafened = isDeafenedReq;
+            }
           }
 
           if (!room.voiceStates) room.voiceStates = {};
@@ -1272,11 +1935,13 @@ wss.on('connection', (ws: WebSocket, req) => {
             nickname: player.nickname,
             isMuted: effectiveMuted,
             isSpeaking: effectiveMuted ? false : effectiveSpeaking,
-            isDeafened: isDeafenedReq,
+            isDeafened: effectiveDeafened,
             isSilenced: player.isSilenced,
           };
 
-          broadcastRoom(roomId, 'VOICE_STATUS_UPDATE', { voiceStates: room.voiceStates });
+          broadcastRoom(roomId, 'VOICE_STATUS_UPDATE', {
+            voiceStates: room.voiceStates,
+          });
           break;
         }
 
@@ -1286,10 +1951,23 @@ wss.on('connection', (ws: WebSocket, req) => {
           if (!room) return;
 
           const currentPhase = room.gameState?.currentPhase;
-          const isNightTime = currentPhase === 'NIGHT' || currentPhase === 'ROLE_REVEAL' || currentPhase === 'HUNTER_REVENGE';
-          if (isNightTime) return; // Drop audio signals during night
-
+          const nightStep = room.gameState?.nightState?.currentStep;
           const player = room.players.find((p) => p.id === playerId);
+          if (!player) return;
+
+          const isWolfDiscussion =
+            currentPhase === 'NIGHT' &&
+            nightStep === 'WEREWOLF_HUNT' &&
+            !!player.role &&
+            ROLES_DATABASE[player.role]?.team === 'WEREWOLF' &&
+            player.isAlive;
+
+          if (
+            (currentPhase === 'NIGHT' && !isWolfDiscussion) ||
+            currentPhase === 'ROLE_REVEAL' ||
+            currentPhase === 'HUNTER_REVENGE'
+          ) return;
+
           if (player?.isSilenced && currentPhase !== 'LOBBY') return; // Drop audio if silenced
 
           const targetPlayerId = payload?.targetPlayerId;
@@ -1525,12 +2203,7 @@ app.post('/api/livekit/token', async (req: Request, res: Response) => {
 
     const apiKey = process.env.LIVEKIT_API_KEY;
     const apiSecret = process.env.LIVEKIT_API_SECRET;
-    console.log('[LIVEKIT CONFIG]', {
-      hasApiKey: !!apiKey,
-      hasApiSecret: !!apiSecret,
-      apiKeyLength: apiKey?.length || 0,
-      apiSecretLength: apiSecret?.length || 0,
-    });
+
     if (!apiKey || !apiSecret) {
       console.error('[LIVEKIT] Missing LIVEKIT_API_KEY or LIVEKIT_API_SECRET');
       return res.status(500).json({
