@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import { AccessToken } from 'livekit-server-sdk';
 import http from 'http';
 import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -1508,7 +1509,55 @@ wss.on('connection', (ws: WebSocket, req) => {
 // ----------------------------------------------------------------------------
 // REST API ENDPOINTS
 // ----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
+// LiveKit Token API
+// ----------------------------------------------------------------------------
 
+app.post('/api/livekit/token', async (req: Request, res: Response) => {
+  try {
+    const { roomName, identity } = req.body;
+
+    if (!roomName || !identity) {
+      return res.status(400).json({
+        error: 'roomName và identity là bắt buộc.',
+      });
+    }
+
+    const apiKey = process.env.LIVEKIT_API_KEY;
+    const apiSecret = process.env.LIVEKIT_API_SECRET;
+
+    if (!apiKey || !apiSecret) {
+      console.error('[LIVEKIT] Missing LIVEKIT_API_KEY or LIVEKIT_API_SECRET');
+      return res.status(500).json({
+        error: 'LiveKit server configuration is missing.',
+      });
+    }
+
+    const token = new AccessToken(apiKey, apiSecret, {
+      identity: String(identity),
+      ttl: '1h',
+    });
+
+    token.addGrant({
+      roomJoin: true,
+      room: String(roomName),
+      canPublish: true,
+      canSubscribe: true,
+    });
+
+    const jwt = await token.toJwt();
+
+    return res.json({
+      token: jwt,
+    });
+  } catch (error) {
+    console.error('[LIVEKIT] Token generation error:', error);
+
+    return res.status(500).json({
+      error: 'Không thể tạo LiveKit token.',
+    });
+  }
+});
 // 1. Create Room
 app.post('/api/room/create', (req: Request, res: Response) => {
   const { nickname, settings } = req.body;
