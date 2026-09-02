@@ -1525,7 +1525,12 @@ app.post('/api/livekit/token', async (req: Request, res: Response) => {
 
     const apiKey = process.env.LIVEKIT_API_KEY;
     const apiSecret = process.env.LIVEKIT_API_SECRET;
-
+    console.log('[LIVEKIT CONFIG]', {
+      hasApiKey: !!apiKey,
+      hasApiSecret: !!apiSecret,
+      apiKeyLength: apiKey?.length || 0,
+      apiSecretLength: apiSecret?.length || 0,
+    });
     if (!apiKey || !apiSecret) {
       console.error('[LIVEKIT] Missing LIVEKIT_API_KEY or LIVEKIT_API_SECRET');
       return res.status(500).json({
