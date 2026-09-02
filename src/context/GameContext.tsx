@@ -513,9 +513,7 @@ export const GameProvider: React.FC<{
    */
   const getLiveKitUrl =
     useCallback((): string => {
-      const envUrl =
-        (import.meta as any)
-          ?.env?.VITE_LIVEKIT_URL;
+      const envUrl = import.meta.env.VITE_LIVEKIT_URL;
 
       if (
         envUrl &&
