@@ -54,21 +54,7 @@ export const DayPhaseView: React.FC<Props> = ({
     (p) => p.isSilenced && p.isAlive
   );
 
-  /*
-   * ============================================================
-   * TIMER
-   * ============================================================
-   *
-   * phaseEndsAt được server gửi xuống.
-   *
-   * UI tự cập nhật liên tục, không phụ thuộc vào:
-   * - click
-   * - gửi chat
-   * - mở lá bài
-   * - thao tác khác
-   *
-   * Server vẫn là nguồn thời gian chính.
-   */
+
   const [remainingSeconds, setRemainingSeconds] = useState(() =>
     gameState?.phaseEndsAt
       ? Math.max(
@@ -333,7 +319,7 @@ export const DayPhaseView: React.FC<Props> = ({
                 {room.settings.revealRoleOnDeath &&
                   v.roleName && (
                     <span className="font-mono text-[10px] px-2 py-0.5 rounded-md bg-rose-900/60 text-rose-200 border border-rose-700/50">
-                      Vai trò: {v.roleName}
+                      Vai trò:
                     </span>
                   )}
 

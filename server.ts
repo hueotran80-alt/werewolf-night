@@ -168,6 +168,9 @@ function getSanitizedRoomForPlayer(room: RoomData, playerId: string): RoomData {
 
     sanitizedGameState = {
       ...gs,
+      // The complete game journal contains secret night actions. It is sent to
+      // clients only after the game has ended, when VictoryScreen is shown.
+      logs: gs.logs.filter((log) => isGameOver || log.isPublic),
       nightState: safeNightState,
     };
   }
@@ -351,6 +354,30 @@ function checkVictory(room: RoomData): { gameOver: boolean; winner?: 'VILLAGE' |
   }
 
   return { gameOver: false };
+}
+
+// -----------------------------------------------------------------------------
+// COMPLETE GAME JOURNAL
+// Secret actions are recorded on the server during the game, but sanitization
+// prevents them from being sent to clients until GAME_OVER.
+// -----------------------------------------------------------------------------
+function addGameJournal(
+  room: RoomData,
+  phase: GamePhase,
+  message: string,
+  type: GameState['logs'][number]['type'] = 'INFO',
+) {
+  if (!room.gameState) return;
+
+  room.gameState.logs.push({
+    id: `journal_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    round: room.gameState.roundNumber,
+    phase,
+    timestamp: Date.now(),
+    message,
+    type,
+    isPublic: false,
+  });
 }
 
 // Start Game and assign Roles
@@ -550,6 +577,17 @@ function startDeathRebuttal(room: RoomData, playerIds: string[]) {
     type: 'INFO',
     isPublic: true,
   });
+
+  const rebuttalNames = validIds
+    .map((id) => room.players.find((p) => p.id === id)?.nickname)
+    .filter(Boolean)
+    .join(', ');
+  addGameJournal(
+    room,
+    'DEATH_REBUTTAL',
+    `🎙️ Phản biện cuối: ${rebuttalNames}. Thời lượng 30 giây.`,
+    'INFO',
+  );
 
   forceDeathRebuttalVoice(room);
   broadcastRoom(room.id, 'PHASE_CHANGED', { newPhase: 'DEATH_REBUTTAL' });
@@ -1060,6 +1098,14 @@ function finalizeWolfTarget(room: RoomData, targetId: string): boolean {
   }
   ns.werewolfTarget = targetId;
 
+  const wolfNames = getAliveWerewolves(room).map((p) => p.nickname).join(', ');
+  addGameJournal(
+    room,
+    'NIGHT',
+    `🐺 ${wolfNames || 'Phe Ma Sói'} đã chốt mục tiêu cắn: ${target.nickname}.`,
+    'NIGHT_ACTION',
+  );
+
   if (ns.werewolfKillTargets.length < ns.werewolfMaxKills) {
     // Wolf Pup frenzy: start another 45-second consensus for the second bite.
     resetWolfProposal(room);
@@ -1087,6 +1133,13 @@ function handleNightAction(room: RoomData, playerId: string, action: GameAction)
     if (!first || !second || !first.isAlive || !second.isAlive || first.id === second.id) return;
     ns.loverPair = [first.id, second.id];
     ns.cupidPlayerId = player.id;
+
+    addGameJournal(
+      room,
+      'NIGHT',
+      `💘 Thần Tình Yêu ${player.nickname} đã ghép ${first.nickname} ❤️ ${second.nickname}.`,
+      'NIGHT_ACTION',
+    );
 
     // Only these three players receive the pair identity.
     const partnerOf = (id: string) => (id === first.id ? second : first);
@@ -1208,12 +1261,24 @@ function handleNightAction(room: RoomData, playerId: string, action: GameAction)
       if (target?.isAlive && target.id !== player.id) {
         ns.serialKillerTarget = target.id;
         ns.serialKillerConfirmed = true;
+        addGameJournal(
+          room,
+          'NIGHT',
+          `🔪 Kẻ Sát Nhân ${player.nickname} đã chọn ${target.nickname} làm mục tiêu.`,
+          'NIGHT_ACTION',
+        );
         broadcastNight(room);
         advanceNightStep(room);
       }
     } else if (action.actionType === 'SERIAL_KILL_SKIP') {
       ns.serialKillerTarget = undefined;
       ns.serialKillerConfirmed = true;
+      addGameJournal(
+        room,
+        'NIGHT',
+        `🔪 Kẻ Sát Nhân ${player.nickname} đã quyết định không ra tay đêm nay.`,
+        'NIGHT_ACTION',
+      );
       broadcastNight(room);
       advanceNightStep(room);
     }
@@ -1224,6 +1289,13 @@ function handleNightAction(room: RoomData, playerId: string, action: GameAction)
     if (action.actionType === 'WITCH_HEAL' && ns.witchHasHeal && ns.witchVictimId) {
       ns.witchSaved = true;
       ns.witchHasHeal = false;
+      const healTarget = room.players.find((p) => p.id === ns.witchVictimId);
+      addGameJournal(
+        room,
+        'NIGHT',
+        `🧪 Phù Thủy ${player.nickname} đã dùng Thuốc Cứu để cứu ${healTarget?.nickname || 'mục tiêu bị Sói tấn công'}.`,
+        'NIGHT_ACTION',
+      );
       broadcastNight(room);
       advanceNightStep(room);
     } else if (
@@ -1231,6 +1303,12 @@ function handleNightAction(room: RoomData, playerId: string, action: GameAction)
       action.actionType === 'WITCH_SKIP'
     ) {
       // "No" does not consume the potion.
+      addGameJournal(
+        room,
+        'NIGHT',
+        `🧪 Phù Thủy ${player.nickname} đã không dùng Thuốc Cứu trong đêm này.`,
+        'NIGHT_ACTION',
+      );
       broadcastNight(room);
       advanceNightStep(room);
     }
@@ -1247,6 +1325,12 @@ function handleNightAction(room: RoomData, playerId: string, action: GameAction)
       if (target?.isAlive && target.id !== player.id) {
         ns.witchPoisonTarget = target.id;
         ns.witchHasPoison = false;
+        addGameJournal(
+          room,
+          'NIGHT',
+          `☠️ Phù Thủy ${player.nickname} đã dùng Thuốc Độc lên ${target.nickname}.`,
+          'NIGHT_ACTION',
+        );
         broadcastNight(room);
         advanceNightStep(room);
       }
@@ -1254,6 +1338,12 @@ function handleNightAction(room: RoomData, playerId: string, action: GameAction)
       action.actionType === 'WITCH_DECLINE_POISON' ||
       action.actionType === 'WITCH_SKIP'
     ) {
+      addGameJournal(
+        room,
+        'NIGHT',
+        `☠️ Phù Thủy ${player.nickname} đã không dùng Thuốc Độc trong đêm này.`,
+        'NIGHT_ACTION',
+      );
       broadcastNight(room);
       advanceNightStep(room);
     }
@@ -1266,6 +1356,12 @@ function handleNightAction(room: RoomData, playerId: string, action: GameAction)
       if (!target?.isAlive || target.id === player.id) return;
       ns.seerTarget = target.id;
       const isWolf = !!target.role && ROLES_DATABASE[target.role]?.team === 'WEREWOLF';
+      addGameJournal(
+        room,
+        'NIGHT',
+        `🔮 Tiên Tri ${player.nickname} đã soi ${target.nickname} và kết quả là ${isWolf ? 'Ma Sói' : 'không phải Ma Sói'}.`,
+        'NIGHT_ACTION',
+      );
       sendToPlayer(playerId, 'ACTION_RESULT', {
         actionType: 'SEER_CHECK',
         targetName: target.nickname,
@@ -1287,6 +1383,12 @@ function handleNightAction(room: RoomData, playerId: string, action: GameAction)
       if (!target?.isAlive) return;
       ns.bodyguardTarget = target.id;
       ns.lastGuardedPlayerId = target.id;
+      addGameJournal(
+        room,
+        'NIGHT',
+        `🛡️ Bảo Vệ ${player.nickname} đã bảo vệ ${target.nickname}.`,
+        'NIGHT_ACTION',
+      );
       broadcastNight(room);
       if (allRequiredNightActionsSubmitted(room)) advanceNightStep(room);
       return;
@@ -1296,6 +1398,12 @@ function handleNightAction(room: RoomData, playerId: string, action: GameAction)
       const target = room.players.find((p) => p.id === action.targetPlayerId);
       if (!target?.isAlive || target.id === player.id) return;
       ns.lieuTarget = target.id;
+      addGameJournal(
+        room,
+        'NIGHT',
+        `🤫 Liễu ${player.nickname} đã chọn làm câm lặng ${target.nickname} trong ngày kế tiếp.`,
+        'NIGHT_ACTION',
+      );
       sendToPlayer(playerId, 'ACTION_RESULT', {
         actionType: 'LIEU_SILENCE',
         targetName: target.nickname,
@@ -1328,6 +1436,13 @@ function handleHunterRevengeAction(room: RoomData, playerId: string, action: Gam
     reason: 'Bị phát đạn cuối cùng của Thợ Săn bắn gục',
   });
 
+  addGameJournal(
+    room,
+    'HUNTER_REVENGE',
+    `🏹 Thợ Săn ${hunter.nickname} đã bắn ${target.nickname} trong phát đạn báo thù.`,
+    'DEATH',
+  );
+
   room.gameState.currentPhase = 'VOTE_RESOLUTION';
   broadcastRoom(room.id, 'PHASE_CHANGED', { newPhase: 'VOTE_RESOLUTION' });
 
@@ -1358,6 +1473,7 @@ function resolveNightActions(room: RoomData) {
         type: 'INFO',
         isPublic: false,
       });
+      addGameJournal(room, 'NIGHT', `🐺 Ma Sói tấn công ${targetPlayer.nickname} nhưng không thể giết vì mục tiêu là Kẻ Sát Nhân.`, 'NIGHT_ACTION');
     } else if (ns.bodyguardTarget === targetId) {
       room.gameState!.logs.push({
         id: `log_bg_${Date.now()}_${targetId}`,
@@ -1368,6 +1484,7 @@ function resolveNightActions(room: RoomData) {
         type: 'INFO',
         isPublic: false,
       });
+      addGameJournal(room, 'NIGHT', `🛡️ ${targetPlayer.nickname} được Bảo Vệ bảo vệ nên sống sót trước đòn tấn công của Ma Sói.`, 'DEATH');
     } else if (ns.witchSaved && ns.witchVictimId === targetId) {
       room.gameState!.logs.push({
         id: `log_witch_save_${Date.now()}_${targetId}`,
@@ -1378,6 +1495,7 @@ function resolveNightActions(room: RoomData) {
         type: 'INFO',
         isPublic: false,
       });
+      addGameJournal(room, 'NIGHT', `🧪 ${targetPlayer.nickname} được Phù Thủy cứu nên sống sót trước đòn tấn công của Ma Sói.`, 'DEATH');
     } else if (targetPlayer.role === 'ELDER' && (targetPlayer.protectedCount || 0) === 0) {
       targetPlayer.protectedCount = 1;
       room.gameState!.logs.push({
@@ -1389,6 +1507,7 @@ function resolveNightActions(room: RoomData) {
         type: 'INFO',
         isPublic: false,
       });
+      addGameJournal(room, 'NIGHT', `👴 ${targetPlayer.nickname} là Già Làng và đã sống sót sau đòn cắn đầu tiên của Ma Sói.`, 'DEATH');
     } else {
       targetPlayer.isAlive = false;
       targetPlayer.deathReason = 'Bị Ma Sói cắn xé';
@@ -1400,6 +1519,7 @@ function resolveNightActions(room: RoomData) {
         roleName: ROLES_DATABASE[targetPlayer.role!]?.vietnameseName,
         reason: 'Bị Ma Sói cắn xé trong đêm',
       });
+      addGameJournal(room, 'NIGHT', `💀 ${targetPlayer.nickname} đã bị Ma Sói giết trong đêm. Vai trò: ${ROLES_DATABASE[targetPlayer.role!]?.vietnameseName || 'Ẩn'}.`, 'DEATH');
     }
   });
 
@@ -1419,7 +1539,10 @@ function resolveNightActions(room: RoomData) {
             roleName: ROLES_DATABASE[skTarget.role!]?.vietnameseName,
             reason: 'Bị nhát dao lạnh lẽo của Kẻ Sát Nhân tước đoạt',
           });
+          addGameJournal(room, 'NIGHT', `🔪 ${skTarget.nickname} bị Kẻ Sát Nhân giết trong đêm. Vai trò: ${ROLES_DATABASE[skTarget.role!]?.vietnameseName || 'Ẩn'}.`, 'DEATH');
         }
+      } else {
+        addGameJournal(room, 'NIGHT', `🛡️ Kẻ Sát Nhân nhắm vào ${skTarget.nickname} nhưng mục tiêu được Bảo Vệ nên sống sót.`, 'DEATH');
       }
     }
   }
@@ -1438,6 +1561,7 @@ function resolveNightActions(room: RoomData) {
           type: 'INFO',
           isPublic: false,
         });
+        addGameJournal(room, 'NIGHT', `🛡️ Độc dược của Phù Thủy nhắm vào ${poisonTarget.nickname} nhưng bị Bảo Vệ chặn.`, 'DEATH');
       } else {
       poisonTarget.isAlive = false;
       poisonTarget.deathReason = 'Trúng độc dược Phù Thủy';
@@ -1450,6 +1574,7 @@ function resolveNightActions(room: RoomData) {
           roleName: ROLES_DATABASE[poisonTarget.role!]?.vietnameseName,
           reason: 'Bị trúng độc dược bí ẩn',
         });
+        addGameJournal(room, 'NIGHT', `☠️ ${poisonTarget.nickname} bị Phù Thủy hạ độc trong đêm. Vai trò: ${ROLES_DATABASE[poisonTarget.role!]?.vietnameseName || 'Ẩn'}.`, 'DEATH');
       }
       }
     }
@@ -1468,6 +1593,12 @@ function resolveNightActions(room: RoomData) {
         room.voiceStates[lieuTargetPlayer.id].isSilenced = true;
       }
     }
+    addGameJournal(
+      room,
+      'NIGHT',
+      `🤫 Liễu đã khiến ${lieuTargetPlayer?.nickname || 'mục tiêu'} bị câm lặng trong ngày kế tiếp.`,
+      'NIGHT_ACTION',
+    );
   }
 
   room.gameState.lastNightVictims = victims;
@@ -1692,6 +1823,20 @@ function resolveVotes(room: RoomData) {
     }
   });
 
+  // Record the complete ballot only for the final post-game journal.
+  Object.entries(vs.votes).forEach(([voterId, targetId]) => {
+    const voter = room.players.find((p) => p.id === voterId);
+    const target = room.players.find((p) => p.id === targetId);
+    if (!voter || !target || !voter.isAlive) return;
+    const weight = voter.role === 'MAYOR' ? 2 : 1;
+    addGameJournal(
+      room,
+      'VOTING',
+      `🗳️ ${voter.nickname} bỏ phiếu cho ${target.nickname}${weight === 2 ? ' (Thị Trưởng: 2 phiếu)' : ''}.`,
+      'VOTE',
+    );
+  });
+
   let eliminatedPlayerId: string | undefined = undefined;
 
   if (candidatesWithMax.length === 1 && maxVotes > 0) {
@@ -1707,6 +1852,16 @@ function resolveVotes(room: RoomData) {
     }
   }
 
+  const voteSummary = Object.entries(counts)
+    .map(([targetId, count]) => `${room.players.find((p) => p.id === targetId)?.nickname || targetId}: ${count} phiếu`)
+    .join(' • ');
+  addGameJournal(
+    room,
+    'VOTE_RESOLUTION',
+    `📊 Kết quả biểu quyết vòng ${room.gameState.roundNumber}: ${voteSummary || 'Không có phiếu hợp lệ'}.`,
+    'VOTE',
+  );
+
   if (eliminatedPlayerId) {
     const target = room.players.find((p) => p.id === eliminatedPlayerId);
     if (target) {
@@ -1721,6 +1876,13 @@ function resolveVotes(room: RoomData) {
         roleName: ROLES_DATABASE[target.role!]?.vietnameseName,
         votesReceived: maxVotes,
       };
+
+      addGameJournal(
+        room,
+        'VOTE_RESOLUTION',
+        `🪢 ${target.nickname} bị loại với ${maxVotes} phiếu. Vai trò: ${ROLES_DATABASE[target.role!]?.vietnameseName || 'Ẩn'}.`,
+        'DEATH',
+      );
 
       room.gameState.logs.push({
         id: `log_elim_${Date.now()}`,
@@ -1749,6 +1911,12 @@ function resolveVotes(room: RoomData) {
     }
   } else {
     room.gameState.lastDayEliminated = undefined;
+    addGameJournal(
+      room,
+      'VOTE_RESOLUTION',
+      `⚖️ Vòng ${room.gameState.roundNumber} hòa phiếu, không có ai bị loại.`,
+      'VOTE',
+    );
     room.gameState.logs.push({
       id: `log_tie_${Date.now()}`,
       round: room.gameState.roundNumber,
@@ -1792,6 +1960,22 @@ function triggerGameOver(room: RoomData, winner: any, message: string) {
   room.gameState.winnerTeam = winner;
   room.gameState.winnerMessage = message;
   room.status = 'FINISHED';
+
+  addGameJournal(
+    room,
+    'GAME_OVER',
+    `🏆 KẾT THÚC VÁN ĐẤU — ${message}`,
+    'VICTORY',
+  );
+
+  room.players.forEach((p) => {
+    addGameJournal(
+      room,
+      'GAME_OVER',
+      `${p.isAlive ? '✨ Sống sót' : '💀 Đã chết'} — ${p.nickname}: ${ROLES_DATABASE[p.role!]?.vietnameseName || 'Không rõ vai trò'}${p.deathReason ? ` — ${p.deathReason}` : ''}.`,
+      p.isAlive ? 'INFO' : 'DEATH',
+    );
+  });
 
   room.gameState.logs.push({
     id: `log_gameover_${Date.now()}`,

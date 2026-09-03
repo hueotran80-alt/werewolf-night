@@ -162,7 +162,7 @@ export const VictoryScreen: React.FC<Props> = ({
         >
           <div className="flex items-center gap-2">
             <History className="w-4 h-4 text-amber-400" />
-            <span>Nhật Ký Diễn Biến Trận Đấu ({gameState?.logs.length || 0} Sự Kiện):</span>
+            <span>Nhật Ký Toàn Bộ Ván Đấu ({gameState?.logs.length || 0} Sự Kiện):</span>
           </div>
           {showLogs ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
@@ -177,7 +177,21 @@ export const VictoryScreen: React.FC<Props> = ({
                 <span className="font-mono text-[10px] text-zinc-500 flex-shrink-0 mt-0.5">
                   V.{log.round}
                 </span>
-                <span className="leading-relaxed">{log.message}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-amber-400">
+                      {log.phase.replaceAll('_', ' ')}
+                    </span>
+                    <span className="text-[9px] text-zinc-600">
+                      {new Date(log.timestamp).toLocaleTimeString('vi-VN', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                  <span className="leading-relaxed">{log.message}</span>
+                </div>
               </div>
             ))}
           </div>
