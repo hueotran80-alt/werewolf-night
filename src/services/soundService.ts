@@ -1,316 +1,264 @@
 // ============================================================================
-// WEREWOLF: NIGHT OF DECEPTION - Web Audio API Atmospheric Sound Synthesizer
-// Generates realistic dark fantasy procedural audio with 0 external asset dependency
+// WEREWOLF: NIGHT OF DECEPTION - Sound Service
+// Sử dụng trực tiếp các file MP3 trong thư mục public/
 // ============================================================================
 
 import { loadAudioSettings, saveAudioSettings } from '../lib/audioSettings';
 
 class SoundService {
-  private ctx: AudioContext | null = null;
   public isMuted: boolean = false;
   public bgmMuted: boolean = false;
-  // Hệ số âm lượng cho toàn bộ hiệu ứng âm thanh tổng hợp (0..1), điều chỉnh
-  // được từ màn hình Cài Đặt (thanh trượt "Âm lượng hiệu ứng").
+
+  // Âm lượng hiệu ứng (0..1)
   public volume: number = 0.7;
-  private bgmOsc: OscillatorNode | null = null;
-  private bgmGain: GainNode | null = null;
+
+  private audioCache: Map<string, HTMLAudioElement> = new Map();
+
+  private bgm: HTMLAudioElement | null = null;
 
   constructor() {
-    // AudioContext will be initialized on first user interaction.
-    // Khôi phục trạng thái tắt/bật & âm lượng đã lưu từ lần chơi trước.
     const saved = loadAudioSettings();
+
     this.isMuted = saved.sfxMuted;
     this.volume = saved.sfxVolume;
+    this.bgmMuted = saved.bgmMuted;
   }
+
+  // ==========================================================================
+  // LƯU CÀI ĐẶT
+  // ==========================================================================
 
   private persist() {
     const saved = loadAudioSettings();
-    saveAudioSettings({ ...saved, sfxMuted: this.isMuted, sfxVolume: this.volume });
+
+    saveAudioSettings({
+      ...saved,
+      sfxMuted: this.isMuted,
+      sfxVolume: this.volume,
+      bgmMuted: this.bgmMuted,
+    });
   }
 
   public setVolume(vol: number) {
     this.volume = Math.max(0, Math.min(1, vol));
+
+    // Cập nhật volume cho các sound đã được tạo
+    this.audioCache.forEach((audio) => {
+      audio.volume = this.volume;
+    });
+
     this.persist();
   }
 
-  private initContext() {
+  // ==========================================================================
+  // AUDIO LOADER
+  // ==========================================================================
+
+  private getAudio(file: string): HTMLAudioElement {
+    let audio = this.audioCache.get(file);
+
+    if (!audio) {
+      audio = new Audio(`/${file}`);
+
+      audio.preload = 'auto';
+      audio.volume = this.volume;
+      audio.muted = this.isMuted;
+
+      this.audioCache.set(file, audio);
+    }
+
+    return audio;
+  }
+
+  private play(file: string, volumeMultiplier = 1) {
     try {
-      if (!this.ctx) {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        if (AudioCtx) {
-          this.ctx = new AudioCtx();
-        }
+      if (this.isMuted || this.volume <= 0) return;
+
+      const audio = this.getAudio(file);
+
+      audio.pause();
+      audio.currentTime = 0;
+
+      audio.volume = Math.max(
+        0,
+        Math.min(1, this.volume * volumeMultiplier)
+      );
+
+      audio.muted = this.isMuted;
+
+      const promise = audio.play();
+
+      if (promise) {
+        promise.catch(() => {
+          // Trình duyệt có thể chặn autoplay.
+          // Lần tương tác tiếp theo sẽ cho phép phát.
+        });
       }
-      if (this.ctx && this.ctx.state === 'suspended') {
-        this.ctx.resume().catch(() => {});
-      }
-    } catch (e) {
-      console.warn('AudioContext initialization ignored:', e);
+    } catch {
+      // Không làm crash game nếu audio lỗi.
     }
   }
 
-  // Play a short, subtle "click" sound - dùng cho mọi thao tác bấm nút trong app
+  // ==========================================================================
+  // CLICK
+  // ==========================================================================
+
   public playClick() {
-    try {
-      if (this.isMuted || this.volume <= 0) return;
-      this.initContext();
-      if (!this.ctx) return;
-
-      const now = this.ctx.currentTime;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-
-      osc.type = 'square';
-      osc.frequency.setValueAtTime(950, now);
-      osc.frequency.exponentialRampToValueAtTime(500, now + 0.05);
-
-      gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.12 * this.volume, now + 0.006);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.07);
-
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-
-      osc.start(now);
-      osc.stop(now + 0.08);
-    } catch (err) {
-      // Ignore
-    }
+    this.play('click.mp3', 0.8);
   }
 
-  // Play a procedural dark Wolf Howl sound
+  // ==========================================================================
+  // TIẾNG SÓI
+  // ==========================================================================
+
   public playWolfHowl() {
-    try {
-      if (this.isMuted || this.volume <= 0) return;
-      this.initContext();
-      if (!this.ctx) return;
-
-      const now = this.ctx.currentTime;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      const filter = this.ctx.createBiquadFilter();
-
-      osc.type = 'sawtooth';
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(400, now);
-      filter.frequency.exponentialRampToValueAtTime(1200, now + 1.2);
-      filter.frequency.exponentialRampToValueAtTime(300, now + 3.0);
-
-      // Wolf pitch envelope (rising, howling peak, slow fall)
-      osc.frequency.setValueAtTime(180, now);
-      osc.frequency.exponentialRampToValueAtTime(420, now + 0.9);
-      osc.frequency.exponentialRampToValueAtTime(360, now + 1.8);
-      osc.frequency.exponentialRampToValueAtTime(160, now + 3.2);
-
-      gain.gain.setValueAtTime(0.001, now);
-      gain.gain.exponentialRampToValueAtTime(0.35 * this.volume, now + 0.6);
-      gain.gain.exponentialRampToValueAtTime(0.3 * this.volume, now + 2.0);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 3.2);
-
-      osc.connect(filter);
-      filter.connect(gain);
-      gain.connect(this.ctx.destination);
-
-      osc.start(now);
-      osc.stop(now + 3.3);
-    } catch (err) {
-      // Ignore audio synthesis errors
-    }
+    this.play('wolf-howl.mp3', 1);
   }
 
-  // Play Morning Church / Village Bell
+  // ==========================================================================
+  // CHUÔNG BUỔI SÁNG
+  // ==========================================================================
+
   public playMorningBell() {
-    try {
-      if (this.isMuted || this.volume <= 0) return;
-      this.initContext();
-      if (!this.ctx) return;
-
-      const now = this.ctx.currentTime;
-      const freqs = [330, 660, 990, 1320];
-
-      freqs.forEach((freq, idx) => {
-        if (!this.ctx) return;
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq * (1 + idx * 0.01), now);
-
-        const amp = (0.2 / (idx + 1)) * this.volume;
-        gain.gain.setValueAtTime(amp, now);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 2.5);
-
-        osc.connect(gain);
-        gain.connect(this.ctx.destination);
-
-        osc.start(now);
-        osc.stop(now + 2.6);
-      });
-    } catch (err) {
-      // Ignore
-    }
+    this.play('morning-bell.mp3', 1);
   }
 
-  // Play Courtroom Gavel Strike for Voting
+  // ==========================================================================
+  // BÚA BỎ PHIẾU
+  // ==========================================================================
+
   public playGavelStrike() {
-    try {
-      if (this.isMuted || this.volume <= 0) return;
-      this.initContext();
-      if (!this.ctx) return;
-
-      const now = this.ctx.currentTime;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(120, now);
-      osc.frequency.exponentialRampToValueAtTime(40, now + 0.25);
-
-      gain.gain.setValueAtTime(0.5 * this.volume, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-
-      osc.start(now);
-      osc.stop(now + 0.35);
-    } catch (err) {
-      // Ignore
-    }
+    this.play('gavel.mp3', 1);
   }
 
-  // Play Card Flip Sound
+  // ==========================================================================
+  // LẬT BÀI
+  // ==========================================================================
+
   public playCardFlip() {
-    try {
-      if (this.isMuted || this.volume <= 0) return;
-      this.initContext();
-      if (!this.ctx) return;
-
-      const now = this.ctx.currentTime;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(400, now);
-      osc.frequency.exponentialRampToValueAtTime(800, now + 0.12);
-
-      gain.gain.setValueAtTime(0.2 * this.volume, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-
-      osc.start(now);
-      osc.stop(now + 0.16);
-    } catch (err) {
-      // Ignore
-    }
+    this.play('card-flip.mp3', 1);
   }
 
-  // Play Victory Fanfare
+  // ==========================================================================
+  // CHIẾN THẮNG
+  // ==========================================================================
+
   public playVictory() {
-    try {
-      if (this.isMuted || this.volume <= 0) return;
-      this.initContext();
-      if (!this.ctx) return;
-
-      const notes = [261.63, 329.63, 392.0, 523.25, 659.25]; // C E G C E
-      const now = this.ctx.currentTime;
-
-      notes.forEach((freq, i) => {
-        if (!this.ctx) return;
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq, now + i * 0.12);
-
-        gain.gain.setValueAtTime(0.001, now + i * 0.12);
-        gain.gain.exponentialRampToValueAtTime(0.25 * this.volume, now + i * 0.12 + 0.04);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 1.2);
-
-        osc.connect(gain);
-        gain.connect(this.ctx.destination);
-
-        osc.start(now + i * 0.12);
-        osc.stop(now + i * 0.12 + 1.3);
-      });
-    } catch (err) {
-      // Ignore
-    }
+    this.play('victory.mp3', 1);
   }
 
-  // Play Death Toll / Elimination Sound
+  // ==========================================================================
+  // NGƯỜI CHẾT
+  // ==========================================================================
+
   public playDeathToll() {
-    try {
-      if (this.isMuted || this.volume <= 0) return;
-      this.initContext();
-      if (!this.ctx) return;
-
-      const now = this.ctx.currentTime;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(110, now);
-      osc.frequency.exponentialRampToValueAtTime(45, now + 1.5);
-
-      gain.gain.setValueAtTime(0.4 * this.volume, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.8);
-
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-
-      osc.start(now);
-      osc.stop(now + 1.9);
-    } catch (err) {
-      // Ignore
-    }
+    this.play('death.mp3', 1);
   }
 
-  // Ambient Dark Fantasy Drone / Wind BGM
+  // ==========================================================================
+  // CÁC SOUND VAI TRÒ / GIAI ĐOẠN
+  // ==========================================================================
+
+  public playNight() {
+    this.play('night.mp3', 1);
+  }
+
+  public playCupid() {
+    this.play('cupid.mp3', 1);
+  }
+
+  public playWitch() {
+    this.play('witch.mp3', 1);
+  }
+
+  public playSeer() {
+    this.play('seer.mp3', 1);
+  }
+
+  public playBodyguard() {
+    this.play('bodyguard.mp3', 1);
+  }
+
+  public playWolfTurn() {
+    this.play('wolf-turn.mp3', 1);
+  }
+
+  public playVote() {
+    this.play('vote.mp3', 1);
+  }
+
+  public playTimeout() {
+    this.play('timeout.mp3', 1);
+  }
+
+  // ==========================================================================
+  // TƯƠNG THÍCH VỚI CODE CŨ
+  // ==========================================================================
+  // GameContext hiện tại có thể gọi hàm này dù file sound chưa có.
+  // Nếu sau này bạn thêm silence-curse.mp3 thì sẽ tự phát file đó.
+
+  public playSilenceCurseSound() {
+    this.play('silence-curse.mp3', 1);
+  }
+
+  // ==========================================================================
+  // NHẠC NỀN
+  // ==========================================================================
+
   public startAmbientBgm() {
     try {
-      if (this.bgmMuted || this.isMuted || this.bgmOsc) return;
-      this.initContext();
-      if (!this.ctx) return;
+      if (this.bgmMuted || this.bgm) return;
 
-      const now = this.ctx.currentTime;
-      this.bgmOsc = this.ctx.createOscillator();
-      this.bgmGain = this.ctx.createGain();
+      this.bgm = new Audio('/bgm.mp3');
 
-      this.bgmOsc.type = 'sine';
-      this.bgmOsc.frequency.setValueAtTime(55, now); // Low A
+      this.bgm.loop = true;
+      this.bgm.preload = 'auto';
+      this.bgm.volume = 0.25;
+      this.bgm.muted = this.bgmMuted;
 
-      this.bgmGain.gain.setValueAtTime(0.001, now);
-      this.bgmGain.gain.exponentialRampToValueAtTime(0.04, now + 3);
+      const promise = this.bgm.play();
 
-      this.bgmOsc.connect(this.bgmGain);
-      this.bgmGain.connect(this.ctx.destination);
-
-      this.bgmOsc.start(now);
-    } catch (err) {
-      // Ignore
+      if (promise) {
+        promise.catch(() => {
+          // Autoplay bị trình duyệt chặn.
+        });
+      }
+    } catch {
+      // Không làm crash game.
     }
   }
 
   public stopAmbientBgm() {
-    if (this.bgmOsc) {
-      try {
-        this.bgmOsc.stop();
-        this.bgmOsc.disconnect();
-      } catch (e) {}
-      this.bgmOsc = null;
-      this.bgmGain = null;
+    if (!this.bgm) return;
+
+    try {
+      this.bgm.pause();
+      this.bgm.currentTime = 0;
+      this.bgm.src = '';
+    } catch {
+      // Ignore
     }
+
+    this.bgm = null;
   }
+
+  // ==========================================================================
+  // TẮT / BẬT ÂM THANH HIỆU ỨNG
+  // ==========================================================================
 
   public toggleMute(): boolean {
     this.isMuted = !this.isMuted;
+
+    this.audioCache.forEach((audio) => {
+      audio.muted = this.isMuted;
+    });
+
     if (this.isMuted) {
       this.stopAmbientBgm();
     }
+
     this.persist();
+
     return this.isMuted;
   }
 }
