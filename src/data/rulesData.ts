@@ -54,10 +54,11 @@ export const BEGINNER_GUIDE: GuideSection[] = [
       '4. Phù Thủy: Được biết ai bị Sói cắn nhưng không được biết vai trò. Có 30 giây cho Bình Cứu; không cứu hoặc hết giờ thì chuyển sang 30 giây cho Bình Độc. Chọn và xác nhận Bình Độc thì chốt ngay; không dùng hoặc hết giờ thì không giết ai.',
       '5. Tiên Tri + Bảo Vệ + Liễu: hoạt động đồng loạt trong 60 giây. Khi tất cả vai trò đang sống đã chọn xong thì hệ thống bỏ qua phần thời gian còn lại.',
       '6. Server tổng hợp kết quả: Tính toán cứu, bảo vệ, độc, cắn và các hiệu ứng khác trước khi chuyển sang ban ngày.',
+      '7. Thứ tự vòng chơi: ĐÊM → NGÀY → VOTE. Nếu cuộc vote làm chết người, người vừa chết có 30 giây phản biện cuối cùng; trong thời gian này người đó được mở mic và chat chung. Hết 30 giây mới sang đêm kế tiếp.',
     ],
     tips: [
       'Nếu Bảo Vệ và Phù Thủy cùng cứu 1 người, người đó vẫn được an toàn.',
-      'Bảo Vệ không được bảo vệ cùng 1 người trong 2 đêm liên tiếp (theo cài đặt phòng).',
+      'Bảo Vệ có thể tự bảo vệ. Một người đã được Bảo Vệ bảo hộ thì không thể được chọn lại ở ngay đêm kế tiếp; quy tắc này luôn được áp dụng và không phụ thuộc cài đặt phòng. Mục tiêu được bảo hộ sẽ chống đồng thời mọi nguyên nhân chết trong đêm như Sói cắn, Sát Nhân giết và Phù Thủy đầu độc.',
     ],
   },
   {

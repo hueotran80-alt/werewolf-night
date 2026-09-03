@@ -225,7 +225,7 @@ function GameRoot() {
           />
         )}
 
-        {(currentPhase === 'DAY_ANNOUNCEMENT' || currentPhase === 'DAY_DISCUSSION') && myPlayer && (
+        {(currentPhase === 'DAY_ANNOUNCEMENT' || currentPhase === 'DAY_DISCUSSION' || currentPhase === 'DEATH_REBUTTAL') && myPlayer && (
           <DayPhaseView
             room={currentRoom}
             myPlayer={myPlayer}
@@ -312,7 +312,7 @@ function GameRoot() {
                   : 'bg-blue-950/80 text-blue-300 border border-blue-700/60'
               }`}
             >
-              {seerResultPopup.isWerewolf ? '🐺 ĐÂY LÀ MA SÓI!' : '👨 ĐÂY LÀ DÂN LÀNG!'}
+              {seerResultPopup.isWerewolf ? '🐺 ĐÂY LÀ MA SÓI!' : '👨 ĐÂY KHÔNG PHẢI MA SÓI'}
             </div>
 
             <button

@@ -30,6 +30,7 @@ export type GamePhase =
   | 'DAY_ANNOUNCEMENT'
   | 'DAY_DISCUSSION'
   | 'VOTING'
+  | 'DEATH_REBUTTAL'
   | 'VOTE_RESOLUTION'
   | 'HUNTER_REVENGE'
   | 'GAME_OVER';
@@ -231,6 +232,7 @@ export interface GameState {
   deck: DeckCardConfig[];
   nightState?: NightState;
   votingState?: VotingState;
+  deathRebuttalPlayerIds: string[];
   lastNightVictims: {
     playerId: string;
     playerName: string;

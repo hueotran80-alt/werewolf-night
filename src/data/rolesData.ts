@@ -70,11 +70,11 @@ export const ROLES_DATABASE: Record<RoleId, RoleDefinition> = {
     team: 'VILLAGE',
     nightPriority: 3,
     description:
-      'Chiến binh kiên cường với thanh kiếm hộ vệ đêm trường. Mỗi đêm, Bảo Vệ có thể canh gác trước cửa nhà một người chơi để che chở họ khỏi nanh vuốt của bầy Sói hung ác.',
+      'Chiến binh kiên cường với thanh kiếm hộ vệ đêm trường. Mỗi đêm, Bảo Vệ có thể bảo vệ chính mình hoặc 1 người chơi khỏi mọi nguyên nhân tử vong trong đêm.',
     fullDescription:
-      'Chiến binh kiên cường với thanh kiếm hộ vệ đêm trường. Mỗi đêm, Bảo Vệ có thể canh gác trước cửa nhà một người chơi để che chở họ khỏi nanh vuốt của bầy Sói hung ác.',
+      'Chiến binh kiên cường với thanh kiếm hộ vệ đêm trường. Mỗi đêm, Bảo Vệ có thể bảo vệ chính mình hoặc 1 người chơi khỏi mọi nguyên nhân tử vong trong đêm.',
     objective: 'Bảo vệ các vai trò trọng yếu như Tiên Tri, Phù Thủy sống sót qua những đêm săn mồi khốc liệt.',
-    shortAbility: 'Mỗi đêm chọn 1 người để bảo vệ khỏi bị cắn.',
+    shortAbility: 'Mỗi đêm chọn chính mình hoặc 1 người để miễn nhiễm với mọi cái chết trong đêm; không được bảo vệ cùng một người ở 2 đêm liên tiếp.',
     whenActive: 'Mỗi đêm',
     usageLimit: 'Không giới hạn',
     maxPerGame: 1,

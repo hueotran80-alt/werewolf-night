@@ -26,6 +26,8 @@ export const VoiceCallBar: React.FC = () => {
 
   const currentPhase = gameState?.currentPhase || 'LOBBY';
   const isNight = currentPhase === 'NIGHT' || currentPhase === 'ROLE_REVEAL' || currentPhase === 'HUNTER_REVENGE';
+  const isDeathRebuttal = currentPhase === 'DEATH_REBUTTAL';
+  const canDeathRebuttalTalk = isDeathRebuttal && !!myPlayer && !myPlayer.isAlive && !!gameState?.deathRebuttalPlayerIds?.includes(myPlayer.id);
   const isLiving = myPlayer ? myPlayer.isAlive : true;
   const isGameActive = !!gameState && currentPhase !== 'LOBBY' && currentPhase !== 'GAME_OVER';
 
@@ -71,6 +73,10 @@ export const VoiceCallBar: React.FC = () => {
                 <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               </span>
 
+              {isDeathRebuttal && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800/60 font-semibold">⚰️ Phản biện 30s</span>
+              )}
+
               {isNight && (
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800/60 font-semibold">
                   🌙 Đêm: Mic Tắt Tự Động
@@ -85,7 +91,9 @@ export const VoiceCallBar: React.FC = () => {
             </div>
 
             <div className="text-[11px] text-zinc-400 flex items-center gap-2 mt-0.5">
-              {isNight ? (
+              {isDeathRebuttal ? (
+                <span>{canDeathRebuttalTalk ? 'Bạn có 30 giây để phản biện bằng mic; mọi người trong phòng đều nghe được.' : 'Người vừa chết đang có 30 giây phản biện; mọi người đều có thể nghe.'}</span>
+              ) : isNight ? (
                 <span>Tất cả người chơi bị câm lặng trong đêm để bảo mật danh tính.</span>
               ) : isSilenced ? (
                 <span className="text-amber-300/90 font-medium">Bạn đã bị Liễu chọn trúng đêm qua. Không thể bật mic.</span>
@@ -133,16 +141,21 @@ export const VoiceCallBar: React.FC = () => {
           {/* Mic Toggle Button */}
           <button
             onClick={toggleMic}
-            disabled={isNight || isSilenced || (!isLiving && isGameActive)}
+            disabled={(isNight || (isDeathRebuttal && !canDeathRebuttalTalk)) || isSilenced || (!isLiving && isGameActive && !canDeathRebuttalTalk)}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-              isNight || isSilenced || (!isLiving && isGameActive)
+              (isNight || (isDeathRebuttal && !canDeathRebuttalTalk)) || isSilenced || (!isLiving && isGameActive && !canDeathRebuttalTalk)
                 ? 'bg-zinc-900 border border-zinc-800 text-zinc-500 cursor-not-allowed opacity-60'
                 : !isMyMicMuted
                 ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30 border border-emerald-400/30 ring-2 ring-emerald-500/30'
                 : 'bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-zinc-300'
             }`}
           >
-            {isNight ? (
+            {isDeathRebuttal ? (
+              <>
+                {canDeathRebuttalTalk ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+                <span>{canDeathRebuttalTalk ? 'Phản biện' : 'Chờ phản biện'}</span>
+              </>
+            ) : isNight ? (
               <>
                 <MicOff className="w-4 h-4" />
                 <span>Đêm Đã Tắt</span>

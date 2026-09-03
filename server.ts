@@ -113,7 +113,7 @@ function getSanitizedRoomForPlayer(room: RoomData, playerId: string): RoomData {
       };
 
       // Cupid + both lovers are the only three people who receive pair info.
-      const pair = ns.loverPair || [];
+      const pair: string[] = ns.loverPair ? [...ns.loverPair] : [];
       if (
         playerId === ns.cupidPlayerId ||
         pair.includes(playerId)
@@ -390,6 +390,7 @@ function startGame(room: RoomData) {
     phaseDuration: 8,
     deck: room.deck,
     lastNightVictims: [],
+    deathRebuttalPlayerIds: [],
     logs: [
       {
         id: `log_${Date.now()}_start`,
@@ -496,6 +497,79 @@ function forceNightVoice(room: RoomData, wolvesCanTalk: boolean) {
   if (!wolvesCanTalk) {
     broadcastRoom(room.id, 'VOICE_FORCE_MUTE_ALL');
   }
+}
+
+function forceDeathRebuttalVoice(room: RoomData) {
+  if (!room.voiceStates) room.voiceStates = {};
+  const allowed = new Set(room.gameState?.deathRebuttalPlayerIds || []);
+
+  room.players.forEach((p) => {
+    const canTalk = allowed.has(p.id) && p.isAlive === false && !p.isSilenced;
+    const existing = room.voiceStates![p.id] || {
+      playerId: p.id,
+      nickname: p.nickname,
+      isMuted: true,
+      isSpeaking: false,
+      isDeafened: false,
+      isSilenced: p.isSilenced,
+    };
+
+    room.voiceStates![p.id] = {
+      ...existing,
+      nickname: p.nickname,
+      isMuted: !canTalk,
+      isSpeaking: false,
+      isDeafened: false,
+      isSilenced: p.isSilenced,
+    };
+  });
+
+  broadcastRoom(room.id, 'VOICE_STATUS_UPDATE', { voiceStates: room.voiceStates });
+}
+
+function startDeathRebuttal(room: RoomData, playerIds: string[]) {
+  if (!room.gameState || playerIds.length === 0) return false;
+
+  const validIds = playerIds.filter((id) => {
+    const p = room.players.find((x) => x.id === id);
+    return !!p && !p.isAlive;
+  });
+  if (validIds.length === 0) return false;
+
+  room.gameState.currentPhase = 'DEATH_REBUTTAL';
+  room.gameState.deathRebuttalPlayerIds = validIds;
+  room.gameState.phaseDuration = 30;
+  room.gameState.phaseEndsAt = Date.now() + 30000;
+
+  room.gameState.logs.push({
+    id: `log_rebuttal_${Date.now()}`,
+    round: room.gameState.roundNumber,
+    phase: 'DEATH_REBUTTAL',
+    timestamp: Date.now(),
+    message: `⚰️ Người vừa chết có 30 giây để phản biện cuối cùng. Mic và chat chung đã mở cho họ.`,
+    type: 'INFO',
+    isPublic: true,
+  });
+
+  forceDeathRebuttalVoice(room);
+  broadcastRoom(room.id, 'PHASE_CHANGED', { newPhase: 'DEATH_REBUTTAL' });
+
+  setTimeout(() => {
+    if (room.gameState?.currentPhase !== 'DEATH_REBUTTAL') return;
+    room.gameState.deathRebuttalPlayerIds = [];
+    forceNightVoice(room, false);
+
+    const victoryCheck = checkVictory(room);
+    if (victoryCheck.gameOver) {
+      triggerGameOver(room, victoryCheck.winner!, victoryCheck.message!);
+      return;
+    }
+
+    room.gameState.roundNumber += 1;
+    startNightPhase(room);
+  }, 30050);
+
+  return true;
 }
 
 function startNightPhase(room: RoomData) {
@@ -1203,10 +1277,7 @@ function handleNightAction(room: RoomData, playerId: string, action: GameAction)
     }
 
     if (action.actionType === 'BODYGUARD_GUARD' && player.role === 'BODYGUARD' && action.targetPlayerId) {
-      if (
-        !room.settings.allowSelfProtectConsecutive &&
-        ns.lastGuardedPlayerId === action.targetPlayerId
-      ) {
+      if (ns.lastGuardedPlayerId === action.targetPlayerId) {
         sendToPlayer(playerId, 'ERROR', {
           message: 'Không thể bảo vệ cùng 1 người trong 2 đêm liên tiếp.',
         });
@@ -1235,6 +1306,35 @@ function handleNightAction(room: RoomData, playerId: string, action: GameAction)
       return;
     }
   }
+}
+
+function handleHunterRevengeAction(room: RoomData, playerId: string, action: GameAction) {
+  if (!room.gameState || room.gameState.currentPhase !== 'HUNTER_REVENGE') return;
+  const hunterId = room.gameState.hunterMustShootPlayerId;
+  if (!hunterId || playerId !== hunterId || action.actionType !== 'HUNTER_KILL' || !action.targetPlayerId) return;
+
+  const hunter = room.players.find((p) => p.id === hunterId);
+  const target = room.players.find((p) => p.id === action.targetPlayerId);
+  if (!hunter || !target || !hunter.isAlive || !target.isAlive || target.id === hunter.id) return;
+
+  target.isAlive = false;
+  target.deathReason = 'Bị Thợ Săn bắn hạ';
+  target.deathRound = room.gameState.roundNumber;
+  target.deathPhase = 'HUNTER';
+  room.gameState.lastNightVictims.push({
+    playerId: target.id,
+    playerName: target.nickname,
+    roleName: ROLES_DATABASE[target.role!]?.vietnameseName,
+    reason: 'Bị phát đạn cuối cùng của Thợ Săn bắn gục',
+  });
+
+  room.gameState.currentPhase = 'VOTE_RESOLUTION';
+  broadcastRoom(room.id, 'PHASE_CHANGED', { newPhase: 'VOTE_RESOLUTION' });
+
+  setTimeout(() => {
+    if (room.gameState?.currentPhase !== 'VOTE_RESOLUTION') return;
+    startDeathRebuttal(room, [hunterId, target.id]);
+  }, 250);
 }
 
 function resolveNightActions(room: RoomData) {
@@ -1328,6 +1428,17 @@ function resolveNightActions(room: RoomData) {
   if (ns.witchPoisonTarget) {
     const poisonTarget = room.players.find((p) => p.id === ns.witchPoisonTarget);
     if (poisonTarget && poisonTarget.isAlive) {
+      if (ns.bodyguardTarget === poisonTarget.id) {
+        room.gameState!.logs.push({
+          id: `log_bg_poison_${Date.now()}_${poisonTarget.id}`,
+          round: room.gameState!.roundNumber,
+          phase: 'NIGHT',
+          timestamp: Date.now(),
+          message: 'Bảo Vệ đã chặn cả độc dược Phù Thủy, giữ mục tiêu sống sót qua đêm!',
+          type: 'INFO',
+          isPublic: false,
+        });
+      } else {
       poisonTarget.isAlive = false;
       poisonTarget.deathReason = 'Trúng độc dược Phù Thủy';
       poisonTarget.deathRound = room.gameState.roundNumber;
@@ -1339,6 +1450,7 @@ function resolveNightActions(room: RoomData) {
           roleName: ROLES_DATABASE[poisonTarget.role!]?.vietnameseName,
           reason: 'Bị trúng độc dược bí ẩn',
         });
+      }
       }
     }
   }
@@ -1413,20 +1525,24 @@ function triggerHunterRevenge(room: RoomData, hunterPlayerId: string) {
         const shotTarget = living[Math.floor(Math.random() * living.length)];
         shotTarget.isAlive = false;
         shotTarget.deathReason = 'Bị Thợ Săn bắn hạ';
+        shotTarget.deathRound = room.gameState!.roundNumber;
+        shotTarget.deathPhase = 'HUNTER';
         room.gameState?.lastNightVictims.push({
           playerId: shotTarget.id,
           playerName: shotTarget.nickname,
           roleName: ROLES_DATABASE[shotTarget.role!]?.vietnameseName,
           reason: 'Bị phát đạn giận dữ của Thợ Săn bắn gục',
         });
+        startDeathRebuttal(room, [hunter.id, shotTarget.id]);
+      } else {
+        startDeathRebuttal(room, [hunter.id]);
       }
-      startDayPhase(room);
     }, 3000);
   } else {
     // Wait for Hunter action or timeout
     setTimeout(() => {
       if (room.gameState && room.gameState.currentPhase === 'HUNTER_REVENGE') {
-        startDayPhase(room);
+        startDeathRebuttal(room, [hunterPlayerId]);
       }
     }, 15000);
   }
@@ -1655,12 +1771,17 @@ function resolveVotes(room: RoomData) {
     return;
   }
 
-  // Advance to next round & Night
+  // Người bị treo cổ được 30s phản biện trước khi bước sang đêm mới.
+  if (eliminatedPlayerId) {
+    if (startDeathRebuttal(room, [eliminatedPlayerId])) return;
+  }
+
+  // Không có người chết: chuyển thẳng sang đêm mới.
   setTimeout(() => {
     if (!room.gameState) return;
     room.gameState.roundNumber += 1;
     startNightPhase(room);
-  }, 6000);
+  }, 1000);
 }
 
 // Trigger Game Over & Reveal
@@ -1804,10 +1925,14 @@ wss.on('connection', (ws: WebSocket, req) => {
         case 'ACTION_SUBMIT': {
           if (!roomId || !playerId) return;
           const room = rooms.get(roomId);
-          if (!room || !room.gameState || room.gameState.currentPhase !== 'NIGHT') return;
+          if (!room || !room.gameState) return;
 
           const action: GameAction = payload;
-          handleNightAction(room, playerId, action);
+          if (room.gameState.currentPhase === 'HUNTER_REVENGE') {
+            handleHunterRevengeAction(room, playerId, action);
+          } else if (room.gameState.currentPhase === 'NIGHT') {
+            handleNightAction(room, playerId, action);
+          }
           break;
         }
 
@@ -1846,10 +1971,15 @@ wss.on('connection', (ws: WebSocket, req) => {
             return;
           }
 
-          // Block dead players from chatting in Living Day channel
+          // Người chết chỉ được chat chung trong 30s phản biện của chính mình.
           if (!player.isAlive && channel === 'DAY_PUBLIC') {
-            sendToPlayer(playerId, 'ERROR', { message: 'Linh hồn đã chết chỉ có thể nhắn tin trong kênh Cõi Âm (Ghost Chat).' });
-            return;
+            const rebuttalAllowed =
+              room.gameState?.currentPhase === 'DEATH_REBUTTAL' &&
+              room.gameState.deathRebuttalPlayerIds?.includes(player.id);
+            if (!rebuttalAllowed) {
+              sendToPlayer(playerId, 'ERROR', { message: 'Linh hồn đã chết chỉ có thể nhắn tin trong Cõi Âm, trừ 30 giây phản biện sau khi bị xử tử.' });
+              return;
+            }
           }
 
           const chatMsg: ChatMessage = {

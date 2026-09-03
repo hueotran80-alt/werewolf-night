@@ -1373,6 +1373,12 @@ export const GameProvider: React.FC<{
 
     const isRoleReveal = gameState.currentPhase === 'ROLE_REVEAL';
     const isHunterRevenge = gameState.currentPhase === 'HUNTER_REVENGE';
+    const isDeathRebuttal = gameState.currentPhase === 'DEATH_REBUTTAL';
+    const canDeathRebuttalTalk =
+      isDeathRebuttal &&
+      !myPlayer?.isAlive &&
+      !!playerId &&
+      (gameState.deathRebuttalPlayerIds || []).includes(playerId);
 
     if (isNight || isRoleReveal || isHunterRevenge) {
       const shouldMute = !isWolfStep;
@@ -1396,6 +1402,14 @@ export const GameProvider: React.FC<{
       }
 
       applyDeafenState(isNight && !isWolfStep);
+    } else if (isDeathRebuttal) {
+      if (!canDeathRebuttalTalk && !isMyMicMuted && liveKitService.isConnected()) {
+        liveKitService.disableMicrophone().then(() => {
+          setIsMyMicMuted(true);
+          setIsMySpeaking(false);
+        }).catch(() => {});
+      }
+      applyDeafenState(false);
     } else {
       applyDeafenState(isMyDeafened);
     }
@@ -1460,6 +1474,12 @@ export const GameProvider: React.FC<{
 
   const toggleMic =
     async (): Promise<boolean> => {
+      const canDeathRebuttalTalk =
+        gameState?.currentPhase === 'DEATH_REBUTTAL' &&
+        !myPlayer?.isAlive &&
+        !!playerId &&
+        (gameState?.deathRebuttalPlayerIds || []).includes(playerId);
+
       const canWolfTalk =
         gameState?.currentPhase === 'NIGHT' &&
         gameState?.nightState?.currentStep === 'WEREWOLF_HUNT' &&
@@ -1469,11 +1489,14 @@ export const GameProvider: React.FC<{
 
       if (
         (gameState?.currentPhase === 'NIGHT' && !canWolfTalk) ||
+        (gameState?.currentPhase === 'DEATH_REBUTTAL' && !canDeathRebuttalTalk) ||
         gameState?.currentPhase === 'ROLE_REVEAL' ||
         gameState?.currentPhase === 'HUNTER_REVENGE'
       ) {
         setError(
-          '🌙 Hiện tại chỉ Ma Sói được phép mở mic và nghe thảo luận của bầy.'
+          gameState?.currentPhase === 'DEATH_REBUTTAL'
+            ? '⚰️ Chỉ người vừa chết mới được mở mic trong 30 giây phản biện.'
+            : '🌙 Hiện tại chỉ Ma Sói được phép mở mic và nghe thảo luận của bầy.'
         );
         return false;
       }

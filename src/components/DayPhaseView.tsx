@@ -26,6 +26,8 @@ export const DayPhaseView: React.FC<Props> = ({
   const gameState = room.gameState;
   const victims = gameState?.lastNightVictims || [];
   const isAnnouncement = gameState?.currentPhase === 'DAY_ANNOUNCEMENT';
+  const isDeathRebuttal = gameState?.currentPhase === 'DEATH_REBUTTAL';
+  const canRebuttal = isDeathRebuttal && !myPlayer.isAlive && !!gameState?.deathRebuttalPlayerIds?.includes(myPlayer.id);
   const isAlive = myPlayer.isAlive;
   const silencedPlayers = room.players.filter((p) => p.isSilenced && p.isAlive);
 
@@ -46,7 +48,7 @@ export const DayPhaseView: React.FC<Props> = ({
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim()) return;
-    onSendChat(inputText, isAlive ? 'DAY_PUBLIC' : 'GHOST_PRIVATE');
+    onSendChat(inputText, (isAlive || canRebuttal) ? 'DAY_PUBLIC' : 'GHOST_PRIVATE');
     setInputText('');
   };
 
@@ -63,7 +65,9 @@ export const DayPhaseView: React.FC<Props> = ({
               ☀️ BAN NGÀY - VÒNG {gameState?.roundNumber || 1}
             </h3>
             <p className="text-xs text-amber-200/80">
-              {isAnnouncement
+              {isDeathRebuttal
+                ? (canRebuttal ? 'Bạn có 30 giây để phản biện cuối cùng. Mic và chat chung đang mở.' : 'Người vừa chết đang có 30 giây để phản biện cuối cùng.')
+                : isAnnouncement
                 ? 'Quản Trò đang công bố danh sách nạn nhân đêm qua...'
                 : 'Thời gian thảo luận tự do! Hãy chất vấn và tìm ra Ma Sói.'}
             </p>

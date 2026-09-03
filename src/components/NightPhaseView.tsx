@@ -87,7 +87,7 @@ export const NightPhaseView: React.FC<Props> = ({
 
   const selectablePlayers = useMemo(() => {
     return livingPlayers.filter((p) => {
-      if (p.id === myPlayer.id) return false;
+      if (p.id === myPlayer.id && myRole !== 'BODYGUARD') return false;
 
       if (isWerewolf) {
         if (p.role && ROLES_DATABASE[p.role]?.team === 'WEREWOLF') return false;
@@ -188,6 +188,7 @@ export const NightPhaseView: React.FC<Props> = ({
         targetPlayerId: selectedTargetId,
       });
     } else if (myRole === 'BODYGUARD') {
+      if (nightState?.lastGuardedPlayerId === selectedTargetId) return;
       submit({
         actionType: 'BODYGUARD_GUARD',
         actorPlayerId: myPlayer.id,
@@ -217,10 +218,11 @@ export const NightPhaseView: React.FC<Props> = ({
 
         const disabled =
           isDead ||
-          isMe ||
+          (isMe && myRole !== 'BODYGUARD') ||
           hasSubmitted ||
           (isWolfTeammate && step === 'WEREWOLF_HUNT') ||
-          (isPreviousWolfTarget && step === 'WEREWOLF_HUNT');
+          (isPreviousWolfTarget && step === 'WEREWOLF_HUNT') ||
+          (myRole === 'BODYGUARD' && nightState?.lastGuardedPlayerId === p.id);
 
         return (
           <button
