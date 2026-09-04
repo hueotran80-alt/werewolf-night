@@ -43,7 +43,7 @@ export const CardLibraryModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 THƯ VIỆN THẺ BÀI & VAI TRÒ
               </h3>
               <p className="text-xs text-zinc-400">
-                Bách khoa toàn thư 14 vai trò độc quyền trong Werewolf: Night of Deception
+                Bách khoa toàn thư 15 vai trò độc quyền trong Werewolf: Night of Deception
               </p>
             </div>
           </div>

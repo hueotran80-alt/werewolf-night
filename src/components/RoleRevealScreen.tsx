@@ -10,14 +10,18 @@ interface Props {
   onUnderstood: () => void;
 }
 
-export const RoleRevealScreen: React.FC<Props> = ({ room, roleId, onUnderstood }) => {
+export const RoleRevealScreen: React.FC<Props> = ({
+  room,
+  roleId,
+  onUnderstood,
+}) => {
   const [isFlipped, setIsFlipped] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(8);
 
   const role = ROLES_DATABASE[roleId] || ROLES_DATABASE.VILLAGER;
 
   useEffect(() => {
-    // Auto flip after 800ms
+    // Tự động lật thẻ sau 800ms
     const flipTimer = setTimeout(() => {
       setIsFlipped(true);
     }, 800);
@@ -45,24 +49,67 @@ export const RoleRevealScreen: React.FC<Props> = ({ room, roleId, onUnderstood }
         <div className="space-y-1">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-mono text-zinc-400">
             <Clock className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Ban đêm bắt đầu sau: <strong className="text-cyan-300">{secondsRemaining}s</strong></span>
+            <span>
+              Ban đêm bắt đầu sau:{' '}
+              <strong className="text-cyan-300">
+                {secondsRemaining}s
+              </strong>
+            </span>
           </div>
+
           <h2 className="text-xl sm:text-2xl font-serif font-black tracking-wider uppercase text-white mt-2">
             VAI TRÒ BÍ MẬT CỦA BẠN
           </h2>
+
           <p className="text-xs text-zinc-400">
             Hãy giữ kín danh tính và ghi nhớ mục tiêu của bản thân!
           </p>
         </div>
 
         {/* 3D Card Display */}
-        <div className="relative group cursor-pointer" onClick={() => setIsFlipped(!isFlipped)}>
+        <div
+          className="relative group cursor-pointer"
+          onClick={() => setIsFlipped((prev) => !prev)}
+          style={{ perspective: '1200px' }}
+        >
           <div
-            className={`transition-all duration-700 transform ${
-              isFlipped ? 'scale-100 rotate-0' : 'scale-95 rotate-3'
-            }`}
+            className="relative transition-transform duration-700"
+            style={{
+              transformStyle: 'preserve-3d',
+              transform: isFlipped ? 'rotateY(0deg)' : 'rotateY(180deg)',
+            }}
           >
-            <RoleCardIllustration roleId={roleId} size="hero" showDetails={false} />
+            {/* Mặt trước */}
+            <div
+              className="relative"
+              style={{
+                backfaceVisibility: 'hidden',
+                WebkitBackfaceVisibility: 'hidden',
+              }}
+            >
+              <RoleCardIllustration
+                roleId={roleId}
+                size="hero"
+                showDetails={false}
+                isRevealed={true}
+              />
+            </div>
+
+            {/* Mặt sau */}
+            <div
+              className="absolute inset-0 flex items-center justify-center"
+              style={{
+                backfaceVisibility: 'hidden',
+                WebkitBackfaceVisibility: 'hidden',
+                transform: 'rotateY(180deg)',
+              }}
+            >
+              <img
+                src="/cards/back.png"
+                alt="Mặt sau lá bài"
+                className="w-full h-full object-contain rounded-2xl"
+              />
+            </div>
           </div>
         </div>
 
@@ -72,6 +119,7 @@ export const RoleRevealScreen: React.FC<Props> = ({ room, roleId, onUnderstood }
             <div className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider">
               Nhiệm vụ & Kỹ năng:
             </div>
+
             <p className="text-xs text-zinc-300 mt-0.5 leading-relaxed">
               {role.fullDescription}
             </p>
@@ -81,6 +129,7 @@ export const RoleRevealScreen: React.FC<Props> = ({ room, roleId, onUnderstood }
             <div className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">
               Điều kiện thắng:
             </div>
+
             <p className="text-xs text-amber-200/90 mt-0.5">
               {role.winCondition}
             </p>
