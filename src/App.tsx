@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { GameProvider, useGame } from './context/GameContext';
 import { HomeScreen } from './components/HomeScreen';
 import { LobbyScreen } from './components/LobbyScreen';
 import { RoleRevealScreen } from './components/RoleRevealScreen';
+import { GameStartDealScreen } from './components/GameStartDealScreen';
 import { NightPhaseView } from './components/NightPhaseView';
 import { DayPhaseView } from './components/DayPhaseView';
 import { VotingPhaseView } from './components/VotingPhaseView';
@@ -107,6 +108,14 @@ function GameRoot() {
   const [showDeckLibrary, setShowDeckLibrary] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showStartDeal, setShowStartDeal] = useState(false);
+  useEffect(() => {
+  if (currentRoom && gameState?.currentPhase === 'ROLE_REVEAL') {
+    setShowStartDeal(true);
+  } else {
+    setShowStartDeal(false);
+  }
+}, [currentRoom?.id, gameState?.currentPhase]);
 
   // If not currently in a room, render Home Screen
   if (!currentRoom) {
@@ -208,12 +217,23 @@ function GameRoot() {
         )}
 
         {currentPhase === 'ROLE_REVEAL' && myRole && (
-          <RoleRevealScreen
-            room={currentRoom}
-            roleId={myRole}
-            onUnderstood={() => {}}
-          />
-        )}
+  <>
+    {showStartDeal ? (
+      <GameStartDealScreen
+        room={currentRoom}
+        onFinished={() => {
+          setShowStartDeal(false);
+        }}
+      />
+    ) : (
+      <RoleRevealScreen
+        room={currentRoom}
+        roleId={myRole}
+        onUnderstood={() => {}}
+      />
+    )}
+  </>
+)}
 
         {(currentPhase === 'NIGHT' || currentPhase === 'HUNTER_REVENGE') && myPlayer && (
           <NightPhaseView
