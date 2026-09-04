@@ -150,12 +150,12 @@ export const DayPhaseView: React.FC<Props> = ({
   };
 
   return (
-    <div className="w-full flex-1 flex flex-col justify-between max-w-4xl mx-auto space-y-4">
+    <div className="w-full flex-1 min-h-0 flex flex-col max-w-4xl mx-auto space-y-2 sm:space-y-4">
 
       {/* ========================================================
           HEADER
       ======================================================== */}
-      <div className="flex items-center justify-between p-4 rounded-3xl bg-amber-950/20 border border-amber-800/40 backdrop-blur-md">
+      <div className="flex items-center justify-between p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl bg-amber-950/20 border border-amber-800/40 backdrop-blur-md fantasy-panel">
 
         <div className="flex items-center gap-3">
 
@@ -233,7 +233,7 @@ export const DayPhaseView: React.FC<Props> = ({
           KẾT QUẢ VOTE + NGƯỜI ĐANG PHẢN BIỆN
       ======================================================== */}
       {isDeathRebuttal && rebuttalTarget && (
-        <div className="p-4 rounded-3xl bg-rose-950/40 border border-rose-700/60 shadow-xl">
+        <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-rose-950/40 border border-amber-800/40 shadow-xl">
 
           <div className="flex items-center justify-between gap-4">
 
@@ -279,7 +279,7 @@ export const DayPhaseView: React.FC<Props> = ({
       {/* ========================================================
           MORNING ANNOUNCEMENT
       ======================================================== */}
-      <div className="p-4 rounded-3xl bg-zinc-950/80 border border-zinc-800 shadow-xl space-y-2">
+      <div className="p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl fantasy-panel shadow-xl space-y-2">
 
         <div className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
 
@@ -357,7 +357,7 @@ export const DayPhaseView: React.FC<Props> = ({
       {/* ========================================================
           TOWN HALL CHAT
       ======================================================== */}
-      <div className="flex-1 flex flex-col bg-zinc-950/80 border border-zinc-800 rounded-3xl shadow-xl overflow-hidden min-h-[280px]">
+      <div className="flex-1 min-h-0 flex flex-col bg-zinc-950/80 border border-zinc-800 rounded-3xl shadow-xl overflow-hidden min-h-[220px]">
 
         <div className="p-3 border-b border-zinc-800/80 bg-zinc-900/50 flex items-center justify-between px-4">
 

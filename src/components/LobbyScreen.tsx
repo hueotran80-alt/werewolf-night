@@ -75,9 +75,9 @@ export const LobbyScreen: React.FC<Props> = ({
   };
 
   return (
-    <div className="w-full flex-1 max-w-5xl mx-auto space-y-5 animate-fade-in p-2 sm:p-4">
+    <div className="w-full flex-1 min-h-0 max-w-5xl mx-auto space-y-3 sm:space-y-5 animate-fade-in p-1 sm:p-4">
       {/* Top Room Banner */}
-      <div className="p-4 sm:p-5 rounded-3xl bg-zinc-950/80 border border-zinc-800 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div className="p-3 sm:p-5 rounded-3xl fantasy-panel shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-cyan-600 to-blue-600 flex items-center justify-center text-white shadow-lg">
             <Users className="w-6 h-6" />
@@ -140,11 +140,11 @@ export const LobbyScreen: React.FC<Props> = ({
       </div>
 
       {/* Main Grid: Left Players & Deck, Right Lobby Chat */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-5 min-h-0">
         {/* Left Column: Player List & Deck Overview (7 Cols) */}
         <div className="lg:col-span-7 space-y-4">
           {/* Players Container */}
-          <div className="p-5 rounded-3xl bg-zinc-950/80 border border-zinc-800 shadow-xl space-y-3">
+          <div className="p-3 sm:p-5 rounded-3xl fantasy-panel shadow-xl space-y-2 sm:space-y-3">
             <div className="flex items-center justify-between text-xs font-bold text-zinc-400 uppercase tracking-wider">
               <span>Danh Sách Người Chơi ({playerCount})</span>
               {playerCount < 6 && (
@@ -154,7 +154,7 @@ export const LobbyScreen: React.FC<Props> = ({
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-3 sm:grid-cols-2 gap-1.5 sm:gap-2.5 max-h-[31dvh] overflow-y-auto mobile-compact-scroll pr-0.5">
               {room.players.map((p) => {
                 const isMe = p.id === myPlayer.id;
                 const pVoice = voiceStates[p.id];
@@ -164,7 +164,7 @@ export const LobbyScreen: React.FC<Props> = ({
                 return (
                   <div
                     key={p.id}
-                    className={`p-3 rounded-2xl border flex items-center justify-between relative transition-all ${
+                    className={`p-2 sm:p-3 rounded-xl sm:rounded-2xl border flex items-center justify-between relative transition-all ${
                       isSpeaking
                         ? 'bg-zinc-900 border-emerald-500 ring-2 ring-emerald-500/30'
                         : isMe
@@ -172,9 +172,9 @@ export const LobbyScreen: React.FC<Props> = ({
                         : 'bg-zinc-900/40 border-zinc-800'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
                       <div className="relative">
-                        <div className="w-8 h-8 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+                        <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
                           {p.nickname.charAt(0).toUpperCase()}
                         </div>
                         {isSpeaking && (
@@ -192,7 +192,7 @@ export const LobbyScreen: React.FC<Props> = ({
                             </span>
                           )}
                         </div>
-                        <div className="text-[10px] text-zinc-400 flex items-center gap-1.5">
+                        <div className="text-[8px] sm:text-[10px] text-zinc-400 flex items-center gap-1">
                           <span>{isMe ? '👤 Bạn' : p.socketConnected ? '🟢 Online' : '🔴 Mất kết nối'}</span>
                           <span>•</span>
                           {isSpeaking ? (
@@ -240,7 +240,7 @@ export const LobbyScreen: React.FC<Props> = ({
           </div>
 
           {/* Deck Cards Preview Bar */}
-          <div className="p-4 rounded-3xl bg-zinc-950/80 border border-zinc-800 shadow-xl space-y-2.5">
+          <div className="p-3 sm:p-4 rounded-3xl fantasy-panel-soft shadow-xl space-y-2">
             <div className="flex items-center justify-between text-xs font-bold text-zinc-400 uppercase tracking-wider">
               <span>Bộ Bài Đã Chọn ({totalCards} Thẻ)</span>
               {isHost && (
@@ -254,7 +254,7 @@ export const LobbyScreen: React.FC<Props> = ({
               )}
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-nowrap sm:flex-wrap gap-1.5 overflow-x-auto no-scrollbar">
               {room.deck.map((card) => {
                 const role = ROLES_DATABASE[card.roleId];
                 if (!role) return null;
@@ -262,7 +262,7 @@ export const LobbyScreen: React.FC<Props> = ({
                 return (
                   <div
                     key={card.roleId}
-                    className="px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center gap-1.5 text-xs text-zinc-200"
+                    className="px-2 py-1 rounded-xl bg-[#11131d]/90 border border-amber-900/30 flex items-center gap-1.5 text-xs text-zinc-200"
                   >
                     <span className="font-semibold">{role.vietnameseName}</span>
                     <span className="font-mono text-[10px] px-1.5 py-0.2 rounded-md bg-zinc-800 text-cyan-300">
@@ -280,7 +280,7 @@ export const LobbyScreen: React.FC<Props> = ({
               type="button"
               disabled={!isDeckBalanced}
               onClick={onStartGame}
-              className={`w-full py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-2xl transition active:scale-95 ${
+              className={`w-full py-3 sm:py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-2xl transition active:scale-95 ${
                 isDeckBalanced
                   ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-600/30'
                   : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
@@ -303,7 +303,7 @@ export const LobbyScreen: React.FC<Props> = ({
         </div>
 
         {/* Right Column: Lobby Chat (5 Cols) */}
-        <div className="lg:col-span-5 flex flex-col bg-zinc-950/80 border border-zinc-800 rounded-3xl shadow-xl overflow-hidden h-[420px]">
+        <div className="lg:col-span-5 flex flex-col fantasy-panel rounded-3xl shadow-xl overflow-hidden h-[25dvh] min-h-[180px] lg:h-[420px]">
           <div className="p-3.5 border-b border-zinc-800 bg-zinc-900/50 flex items-center gap-2 text-xs font-bold text-zinc-300">
             <MessageSquare className="w-4 h-4 text-cyan-400" />
             <span>Kênh Trò Chuyện Sảnh Chờ</span>

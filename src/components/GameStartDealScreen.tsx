@@ -82,7 +82,7 @@ export const GameStartDealScreen: React.FC<Props> = ({
       : 100;
 
   return (
-    <div className="fixed inset-0 z-40 bg-[#04060C] text-white overflow-hidden flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-40 bg-[#04060C] text-white app-fantasy-bg overflow-hidden flex items-center justify-center p-4">
       {/* Ambient background */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[420px] h-[420px] rounded-full bg-indigo-900/20 blur-3xl" />

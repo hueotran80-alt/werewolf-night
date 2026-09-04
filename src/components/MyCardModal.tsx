@@ -27,10 +27,10 @@ export const MyCardModal: React.FC<Props> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-      <div className="w-full max-w-md max-h-[92vh] bg-[#0B0F19] border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="w-full max-w-md max-h-[92vh] fantasy-panel rounded-3xl shadow-2xl overflow-hidden flex flex-col">
 
         {/* HEADER */}
-        <div className="p-3 sm:p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/60 shrink-0">
+        <div className="p-3 sm:p-4 border-b border-zinc-800 flex items-center justify-between bg-[#080a12]/80 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs sm:text-sm font-bold text-white font-serif tracking-wider truncate">
               🃏 THẺ BÀI CỦA BẠN
@@ -113,7 +113,7 @@ export const MyCardModal: React.FC<Props> = ({
         </div>
 
         {/* FOOTER */}
-        <div className="p-3 sm:p-4 border-t border-zinc-800 bg-zinc-950/80 shrink-0">
+        <div className="p-3 sm:p-4 border-t border-zinc-800 bg-[#0a0c13]/80 shrink-0">
           <button
             onClick={onClose}
             className="w-full py-2.5 rounded-xl text-sm font-bold bg-zinc-800 hover:bg-zinc-700 text-white transition"

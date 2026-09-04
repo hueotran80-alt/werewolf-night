@@ -37,7 +37,7 @@ export const RoleRevealScreen: React.FC<Props> = ({
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#060810] text-zinc-100 flex flex-col items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-[#060810] text-zinc-100 app-fantasy-bg flex flex-col items-center justify-center p-4 relative overflow-hidden">
       {/* Gothic Ambient Lighting */}
       <div
         className="absolute w-96 h-96 rounded-full opacity-20 blur-3xl pointer-events-none"
@@ -114,7 +114,7 @@ export const RoleRevealScreen: React.FC<Props> = ({
         </div>
 
         {/* Role Description Card */}
-        <div className="w-full p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 text-left space-y-2.5 shadow-xl">
+        <div className="w-full p-3 sm:p-4 rounded-2xl fantasy-panel text-left space-y-2.5 shadow-xl">
           <div>
             <div className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider">
               Nhiệm vụ & Kỹ năng:
@@ -139,7 +139,7 @@ export const RoleRevealScreen: React.FC<Props> = ({
         {/* Action Button */}
         <button
           onClick={onUnderstood}
-          className="w-full py-3.5 rounded-2xl text-sm font-bold bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-xl shadow-cyan-600/30 transition flex items-center justify-center gap-2 active:scale-95"
+          className="w-full py-3.5 rounded-2xl text-sm font-bold bg-gradient-to-r from-amber-700 to-amber-500 hover:from-amber-600 hover:to-amber-400 text-white shadow-xl shadow-cyan-600/30 transition flex items-center justify-center gap-2 active:scale-95"
         >
           <Check className="w-4 h-4" />
           <span>TÔI ĐÃ HIỂU VAI TRÒ</span>
