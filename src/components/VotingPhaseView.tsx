@@ -197,13 +197,13 @@ export const VotingPhaseView: React.FC<Props> = ({
 
 
   return (
-    <div className="w-full flex-1 min-h-0 flex flex-col max-w-4xl mx-auto space-y-2 sm:space-y-4">
+    <div className="w-full flex-1 flex flex-col justify-between max-w-4xl mx-auto space-y-4">
 
       {/* ========================================================
           HEADER
       ======================================================== */}
 
-      <div className="flex items-center justify-between p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl bg-rose-950/20 border border-amber-800/30 backdrop-blur-md fantasy-panel">
+      <div className="flex items-center justify-between p-4 rounded-3xl bg-rose-950/20 border border-rose-800/40 backdrop-blur-md">
 
         <div className="flex items-center gap-3">
 
@@ -381,7 +381,7 @@ export const VotingPhaseView: React.FC<Props> = ({
           PLAYER LIST
       ======================================================== */}
 
-      <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 gap-1.5 sm:gap-3 max-h-[48dvh] overflow-y-auto mobile-compact-scroll pr-0.5">
+      <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3">
 
         {room.players.map(
           (p) => {
@@ -422,7 +422,7 @@ export const VotingPhaseView: React.FC<Props> = ({
                     p.id
                   )
                 }
-                className={`p-2 sm:p-3.5 rounded-xl sm:rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between h-[76px] sm:h-32 ${
+                className={`p-2.5 sm:p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between h-24 sm:h-32 ${
                   isDead
                     ? 'bg-zinc-950/40 border-zinc-900 opacity-40 cursor-not-allowed'
                     : isSelected
@@ -437,7 +437,7 @@ export const VotingPhaseView: React.FC<Props> = ({
 
                 <div className="flex items-center justify-between w-full">
 
-                  <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl bg-gradient-to-tr from-zinc-800 to-zinc-700 flex items-center justify-center font-bold text-xs text-white border border-zinc-600">
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-zinc-800 to-zinc-700 flex items-center justify-center font-bold text-xs text-white border border-zinc-600">
 
                     {p.nickname
                       .charAt(0)
@@ -465,7 +465,7 @@ export const VotingPhaseView: React.FC<Props> = ({
 
                 <div>
 
-                  <div className="font-bold text-[10px] sm:text-xs text-white truncate flex items-center gap-1">
+                  <div className="font-bold text-xs text-white truncate flex items-center gap-1">
 
                     <span>
                       {p.nickname}
@@ -477,7 +477,7 @@ export const VotingPhaseView: React.FC<Props> = ({
 
                   </div>
 
-                  <div className="text-[8px] sm:text-[10px] text-zinc-400 mt-0.5">
+                  <div className="text-[10px] text-zinc-400 mt-0.5">
 
                     {isDead
                       ? '💀 Đã chết'
@@ -514,7 +514,7 @@ export const VotingPhaseView: React.FC<Props> = ({
 
       {!isResolution && (
 
-        <div className="sticky bottom-0 z-20 p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl fantasy-panel flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="p-4 rounded-3xl bg-zinc-950/80 border border-zinc-800 flex flex-col sm:flex-row items-center justify-between gap-3">
 
           <div className="text-xs text-zinc-300">
 

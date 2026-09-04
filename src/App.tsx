@@ -164,12 +164,12 @@ function GameRoot() {
   const currentPhase = gameState?.currentPhase || 'LOBBY';
 
   return (
-    <div className="min-h-screen bg-[#05070E] text-zinc-100 flex flex-col justify-between relative overflow-hidden app-fantasy-bg">
+    <div className="min-h-screen werewolf-fantasy-bg text-zinc-100 flex flex-col justify-between relative overflow-x-hidden">
       {/* Gothic Ambient Gradient */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-gradient-to-b from-indigo-950/35 via-amber-950/10 to-transparent blur-3xl pointer-events-none" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-gradient-to-b from-indigo-950/20 via-rose-950/10 to-transparent blur-3xl pointer-events-none" />
 
       {/* Top Navbar */}
-      <header className="relative z-10 w-full max-w-6xl mx-auto px-4 py-3 border-b border-zinc-900 flex items-center justify-between">
+      <header className="relative z-10 w-full max-w-6xl mx-auto px-3 sm:px-4 py-2.5 sm:py-3 border-b border-zinc-900 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-xs font-serif font-black tracking-wider text-white uppercase">
             WEREWOLF: NIGHT OF DECEPTION
@@ -196,7 +196,7 @@ function GameRoot() {
       </header>
 
       {/* Dynamic Game Phase Screen */}
-      <main className="relative z-10 w-full max-w-6xl mx-auto px-2 sm:px-4 py-2 sm:py-4 flex-1 flex flex-col my-auto min-h-0">
+      <main className="relative z-10 w-full max-w-6xl mx-auto px-3 sm:px-4 py-3 sm:py-4 flex-1 flex flex-col">
         <VoiceCallBar />
 
         {currentPhase === 'LOBBY' && myPlayer && (

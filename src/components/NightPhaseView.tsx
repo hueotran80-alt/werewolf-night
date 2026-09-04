@@ -204,7 +204,7 @@ export const NightPhaseView: React.FC<Props> = ({
   };
 
   const renderTargets = (mode: 'normal' | 'cupid' = 'normal') => (
-    <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 gap-1.5 sm:gap-3 max-h-[46dvh] overflow-y-auto mobile-compact-scroll pr-0.5">
+    <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3">
       {room.players.map((p) => {
         const isDead = !p.isAlive;
         const isMe = p.id === myPlayer.id;
@@ -243,7 +243,7 @@ export const NightPhaseView: React.FC<Props> = ({
                 handleTargetClick(p);
               }
             }}
-            className={`p-2 sm:p-3.5 rounded-xl sm:rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between h-[76px] sm:h-28 ${
+            className={`p-2.5 sm:p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between h-24 sm:h-28 ${
               isDead
                 ? 'bg-zinc-950/40 border-zinc-900 opacity-40'
                 : disabled
@@ -254,7 +254,7 @@ export const NightPhaseView: React.FC<Props> = ({
             }`}
           >
             <div className="flex items-center justify-between w-full">
-              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl bg-gradient-to-tr from-zinc-800 to-zinc-700 flex items-center justify-center font-bold text-xs text-white border border-zinc-600">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-zinc-800 to-zinc-700 flex items-center justify-center font-bold text-xs text-white border border-zinc-600">
                 {p.nickname.charAt(0).toUpperCase()}
               </div>
 
@@ -272,8 +272,8 @@ export const NightPhaseView: React.FC<Props> = ({
             </div>
 
             <div>
-              <div className="font-bold text-[10px] sm:text-xs text-white truncate">{p.nickname}</div>
-              <div className="text-[8px] sm:text-[10px] text-zinc-400 mt-0.5">
+              <div className="font-bold text-xs text-white truncate">{p.nickname}</div>
+              <div className="text-[10px] text-zinc-400 mt-0.5">
                 {isDead ? '💀 Đã chết' : '✨ Còn sống'}
               </div>
             </div>
@@ -523,8 +523,8 @@ export const NightPhaseView: React.FC<Props> = ({
   };
 
   return (
-    <div className="w-full flex-1 min-h-0 flex flex-col max-w-5xl mx-auto space-y-2 sm:space-y-4">
-      <div className="flex items-center justify-between p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl fantasy-panel backdrop-blur-md">
+    <div className="w-full flex-1 flex flex-col max-w-5xl mx-auto space-y-4">
+      <div className="flex items-center justify-between p-4 rounded-3xl bg-zinc-950/70 border border-zinc-800/80 backdrop-blur-md">
         <div className="flex items-center gap-3">
           <span className="p-2.5 rounded-2xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 animate-pulse">
             <Moon className="w-5 h-5" />
@@ -572,7 +572,7 @@ export const NightPhaseView: React.FC<Props> = ({
         </div>
       )}
 
-      <div className="p-2.5 sm:p-5 rounded-2xl sm:rounded-3xl fantasy-panel shadow-2xl space-y-2 sm:space-y-3 min-h-0">
+      <div className="p-4 sm:p-5 rounded-3xl bg-zinc-950/80 border border-zinc-800 shadow-2xl space-y-3">
         <div className="flex items-center justify-between">
           <div className="text-xs font-bold text-zinc-350 uppercase tracking-wider flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-cyan-400" />
