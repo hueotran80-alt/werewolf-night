@@ -2,7 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { Player, RoomData, GameAction, ChatMessage } from '../types';
 import { ROLES_DATABASE } from '../data/rolesData';
 
-const MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+const MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 
 // Mỗi profile có thể có persona riêng sau này. Hiện chỉ mở profile LINH.
 const SMART_BOT_PROFILES = {
