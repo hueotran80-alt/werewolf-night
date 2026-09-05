@@ -2,7 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { Player, RoomData, GameAction, ChatMessage } from '../types';
 import { ROLES_DATABASE } from '../data/rolesData';
 
-const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 
 // Mỗi profile có thể có persona riêng sau này. Hiện chỉ mở profile LINH.
 const SMART_BOT_PROFILES = {
@@ -14,6 +14,10 @@ export const MAX_SMART_BOTS_PER_ROOM = 1;
 let client: GoogleGenAI | null = null;
 const botChatBusy = new Set<string>();
 const botLastChatAt = new Map<string, number>();
+
+// Lưu ngữ cảnh hội thoại riêng theo từng bot/phòng để bot có thể trò chuyện 2 chiều.
+const botConversationMemory = new Map<string, ChatMessage[]>();
+const MAX_CONVERSATION_MEMORY = 24;
 
 function getClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -110,6 +114,11 @@ export async function generateBotChat(
   if (!ai) return null;
 
   const recent = recentPublicChat(room.id, chatMap);
+   const memoryKey = `${room.id}:${bot.id}`;
+   const memory = botConversationMemory.get(memoryKey) || [];
+   const conversation = memory.length
+     ? memory.map((m) => `${m.senderName}: ${m.text}`).join('\n')
+     : '(Chưa có lịch sử hội thoại riêng.)';
   const profile = SMART_BOT_PROFILES[bot.botProfileId || 'LINH'] || SMART_BOT_PROFILES.LINH;
   const role = bot.role ? ROLES_DATABASE[bot.role] : undefined;
   const phase = room.gameState?.currentPhase || 'LOBBY';
@@ -130,8 +139,15 @@ ${JSON.stringify(publicPlayers(room, bot))}
 Tin nhắn chung gần đây:
 ${recent}
 
-Hãy trả lời như một người chơi thật trong phòng. Không được tiết lộ bạn là AI, không tiết lộ vai trò bí mật của chính mình hoặc thông tin bí mật không nên công khai. Trả lời bằng tiếng Việt, ngắn gọn 1-2 câu, tự nhiên, có thể nghi ngờ, biện hộ hoặc trêu nhẹ tùy tình huống.
+Hãy trò chuyện như một người chơi thật, có cá tính và có khả năng duy trì hội thoại nhiều lượt. Không được tiết lộ bạn là AI. Không tiết lộ vai trò bí mật hoặc thông tin bí mật không nên công khai.
+
+Ưu tiên hội thoại tự nhiên: trả lời đúng điều người khác vừa nói, nhớ những gì họ đã nói trước đó, có thể hỏi ngược lại 1 câu khi phù hợp, phản biện khi thấy mâu thuẫn, đồng tình khi có lý, đùa nhẹ khi thích hợp và chủ động đưa ra suy luận. Đừng biến mọi câu trả lời thành câu hỏi; chỉ hỏi ngược khi nó giúp cuộc trò chuyện tiếp tục. Tránh lặp lại cùng một kiểu câu. Khi đang ở lobby có thể nói chuyện thoải mái; khi đang chơi thì vẫn phải giữ vai và mục tiêu thắng.
+
+Độ dài tự nhiên khoảng 1-4 câu, có thể dài hơn khi cần giải thích một lập luận quan trọng. Không trả lời cụt ngủn chỉ vì người chơi hỏi một câu ngắn.
 Kênh hiện tại: ${channel}.
+Lịch sử hội thoại riêng gần đây của bạn:
+${conversation}
+
 Chỉ trả về nội dung tin nhắn, không markdown, không JSON.`;
 
   try {
@@ -140,7 +156,7 @@ Chỉ trả về nội dung tin nhắn, không markdown, không JSON.`;
       contents: prompt,
       config: {
         temperature: 0.85,
-        maxOutputTokens: 120,
+        maxOutputTokens: 260,
       },
     });
     const text = response.text?.trim();
@@ -170,6 +186,24 @@ export async function maybeBotReplyToChat(
   try {
     const text = await generateBotChat(room, bot, chatMap, channel);
     if (!text) return;
+
+    const memoryKey = `${room.id}:${bot.id}`;
+    const memory = botConversationMemory.get(memoryKey) || [];
+    // Ghi lại các tin nhắn công khai gần nhất mà bot vừa nhìn thấy, giữ memory gọn.
+    const recentRoomMessages = (chatMap.get(room.id) || [])
+      .filter((m) => m.channel === 'LOBBY' || m.channel === 'DAY_PUBLIC')
+      .slice(-12);
+    const merged = [...memory, ...recentRoomMessages, {
+      id: `memory_bot_${Date.now()}`,
+      senderId: bot.id,
+      senderName: bot.nickname,
+      avatarSeed: bot.avatarSeed,
+      text,
+      timestamp: Date.now(),
+      channel,
+    }];
+    const seen = new Set<string>();
+    botConversationMemory.set(memoryKey, merged.filter((m) => !seen.has(m.id) && seen.add(m.id)).slice(-MAX_CONVERSATION_MEMORY));
     const message: ChatMessage = {
       id: `chat_bot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       senderId: bot.id,
