@@ -93,6 +93,7 @@ function GameRoot() {
     transferHost,
     respondHostTransfer,
     addBotPlayer,
+    addSmartBotPlayer,
     kickPlayer,
     returnToLobby,
     restartWithSamePlayers,
@@ -209,6 +210,7 @@ function GameRoot() {
             onUpdateDeck={updateDeck}
             onUpdateSettings={updateSettings}
             onAddBot={addBotPlayer}
+            onAddSmartBot={addSmartBotPlayer}
             onKickPlayer={kickPlayer}
             onTransferHost={transferHost}
             onLeaveRoom={leaveRoom}
