@@ -370,3 +370,96 @@ Chỉ trả JSON: {"targetPlayerId":"ID"}`;
     return null;
   }
 }
+// ============================================================
+// LINH AI - TEXT TO SPEECH
+// ============================================================
+
+export async function generateLinhSpeech(
+  text: string,
+): Promise<Buffer | null> {
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    console.error('[GEMINI TTS] GEMINI_API_KEY is missing.');
+    return null;
+  }
+
+  const cleanText = text.trim();
+
+  if (!cleanText) {
+    return null;
+  }
+
+  const ttsModel =
+    process.env.GEMINI_TTS_MODEL ||
+    'gemini-3.1-flash-tts-preview';
+
+  const voice =
+    process.env.GEMINI_TTS_VOICE ||
+    'Kore';
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${ttsModel}:generateContent`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `Bạn là Linh AI trong trò chơi Ma Sói. Hãy đọc tự nhiên, rõ ràng và thân thiện câu sau bằng tiếng Việt:\n\n${cleanText}`,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: voice,
+                },
+              },
+            },
+          },
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+
+      console.error(
+        `[GEMINI TTS] HTTP ${response.status}: ${errorText}`,
+      );
+
+      return null;
+    }
+
+    const data = await response.json();
+
+    const audioBase64 =
+      data?.candidates?.[0]?.content?.parts?.find(
+        (part: any) =>
+          typeof part?.inlineData?.data === 'string',
+      )?.inlineData?.data;
+
+    if (!audioBase64) {
+      console.error(
+        '[GEMINI TTS] Response không chứa dữ liệu audio.',
+      );
+
+      return null;
+    }
+
+    return Buffer.from(audioBase64, 'base64');
+  } catch (error) {
+    console.error('[GEMINI TTS]', error);
+    return null;
+  }
+}

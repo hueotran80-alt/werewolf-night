@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import { AccessToken } from 'livekit-server-sdk';
+import { speakLinhInRoom, disconnectLinhVoiceRoom } from './src/services/linhVoiceService';
 import http from 'http';
 import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -2270,6 +2271,10 @@ wss.on('connection', (ws: WebSocket, req) => {
                 room.players.forEach((recipient) => {
                   sendToPlayer(recipient.id, 'NEW_CHAT', { message: botMessage });
                 });
+
+                // Linh AI nói bằng một participant LiveKit riêng.
+                // Chat vẫn được gửi như cũ; lỗi TTS/LiveKit không làm hỏng chat.
+                void speakLinhInRoom(roomId, botMessage.text);
               });
             });
           }
