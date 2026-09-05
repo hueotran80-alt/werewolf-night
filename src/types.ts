@@ -5,6 +5,10 @@
 export type Team = 'VILLAGE' | 'WEREWOLF' | 'NEUTRAL';
 export type TeamType = Team;
 
+// Loại bot: giữ Bot Test cũ và tách riêng Bot thông minh để có thể mở rộng sau này.
+export type BotType = 'LEGACY' | 'GEMINI';
+export type SmartBotProfileId = 'LINH';
+
 export type RoleId =
   | 'VILLAGER'
   | 'SEER'
@@ -85,6 +89,8 @@ export interface Player {
   protectedCount?: number;
   potionSaved?: boolean;
   isBot?: boolean;
+  botType?: BotType;
+  botProfileId?: SmartBotProfileId;
   socketConnected: boolean;
   lastActive: number;
   isSilenced?: boolean;
@@ -303,6 +309,7 @@ export type WsMessageType =
   | 'REPLAY_REQUEST'
   | 'ERROR'
   | 'ADD_BOT_REQUEST'
+  | 'ADD_SMART_BOT_REQUEST'
   | 'KICK_PLAYER_REQUEST'
   | 'VOICE_STATUS_UPDATE'
   | 'VOICE_SIGNAL'

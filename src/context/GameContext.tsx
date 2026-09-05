@@ -110,6 +110,7 @@ interface GameContextType {
   ) => void;
 
   addBotPlayer: () => void;
+  addSmartBotPlayer: () => void;
 
   kickPlayer: (
     targetPlayerId: string
@@ -2044,6 +2045,13 @@ export const GameProvider: React.FC<{
       );
     };
 
+  const addSmartBotPlayer =
+    () => {
+      sendWs(
+        'ADD_SMART_BOT_REQUEST'
+      );
+    };
+
   // ==========================================================================
   // KICK PLAYER
   // ==========================================================================
@@ -2203,6 +2211,7 @@ export const GameProvider: React.FC<{
         respondHostTransfer,
 
         addBotPlayer,
+        addSmartBotPlayer,
         kickPlayer,
 
         returnToLobby,

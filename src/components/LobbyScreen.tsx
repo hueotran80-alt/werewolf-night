@@ -30,6 +30,7 @@ interface Props {
   onUpdateDeck: (newDeck: DeckCardConfig[]) => void;
   onUpdateSettings: (newSettings: Partial<RoomSettings>) => void;
   onAddBot: () => void;
+  onAddSmartBot: () => void;
   onKickPlayer: (playerId: string) => void;
   onTransferHost: (playerId: string) => void;
   onLeaveRoom: () => void;
@@ -45,6 +46,7 @@ export const LobbyScreen: React.FC<Props> = ({
   onUpdateDeck,
   onUpdateSettings,
   onAddBot,
+  onAddSmartBot,
   onKickPlayer,
   onTransferHost,
   onLeaveRoom,
@@ -75,7 +77,7 @@ export const LobbyScreen: React.FC<Props> = ({
   };
 
   return (
-    <div className="w-full flex-1 max-w-5xl mx-auto space-y-4 sm:space-y-5 animate-fade-in p-1.5 sm:p-4">
+    <div className="w-full flex-1 max-w-5xl mx-auto space-y-5 animate-fade-in p-2 sm:p-4">
       {/* Top Room Banner */}
       <div className="p-4 sm:p-5 rounded-3xl bg-zinc-950/80 border border-zinc-800 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -112,9 +114,21 @@ export const LobbyScreen: React.FC<Props> = ({
                 onClick={onAddBot}
                 disabled={playerCount >= room.settings.maxPlayers}
                 className="px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-xs font-bold text-zinc-200 flex items-center gap-1.5 transition"
+                title="Bot Test cũ - hành vi tự động ngẫu nhiên"
               >
                 <Bot className="w-4 h-4 text-cyan-400" />
-                <span>+ Thêm Bot Test</span>
+                <span>+ Bot Test</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onAddSmartBot}
+                disabled={playerCount >= room.settings.maxPlayers || room.players.some((p) => p.isBot && p.botType === 'GEMINI')}
+                className="px-3.5 py-2 rounded-xl bg-violet-950/70 hover:bg-violet-900 disabled:opacity-40 border border-violet-700/50 text-xs font-bold text-violet-200 flex items-center gap-1.5 transition"
+                title="Bot thông minh Gemini - hiện giới hạn 1 bot/phòng"
+              >
+                <Bot className="w-4 h-4 text-violet-300" />
+                <span>+ Bot Gemini</span>
               </button>
 
               <button
@@ -144,7 +158,7 @@ export const LobbyScreen: React.FC<Props> = ({
         {/* Left Column: Player List & Deck Overview (7 Cols) */}
         <div className="lg:col-span-7 space-y-4">
           {/* Players Container */}
-          <div className="p-3 sm:p-5 rounded-3xl bg-zinc-950/80 border border-zinc-800 shadow-xl space-y-3">
+          <div className="p-5 rounded-3xl bg-zinc-950/80 border border-zinc-800 shadow-xl space-y-3">
             <div className="flex items-center justify-between text-xs font-bold text-zinc-400 uppercase tracking-wider">
               <span>Danh Sách Người Chơi ({playerCount})</span>
               {playerCount < 6 && (
@@ -154,7 +168,7 @@ export const LobbyScreen: React.FC<Props> = ({
               )}
             </div>
 
-            <div className="grid grid-cols-3 sm:grid-cols-2 gap-2 sm:gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {room.players.map((p) => {
                 const isMe = p.id === myPlayer.id;
                 const pVoice = voiceStates[p.id];
@@ -164,7 +178,7 @@ export const LobbyScreen: React.FC<Props> = ({
                 return (
                   <div
                     key={p.id}
-                    className={`p-2 sm:p-3 rounded-2xl border flex items-center justify-between relative transition-all ${
+                    className={`p-3 rounded-2xl border flex items-center justify-between relative transition-all ${
                       isSpeaking
                         ? 'bg-zinc-900 border-emerald-500 ring-2 ring-emerald-500/30'
                         : isMe
@@ -174,7 +188,7 @@ export const LobbyScreen: React.FC<Props> = ({
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div className="relative">
-                        <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+                        <div className="w-8 h-8 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
                           {p.nickname.charAt(0).toUpperCase()}
                         </div>
                         {isSpeaking && (
@@ -303,7 +317,7 @@ export const LobbyScreen: React.FC<Props> = ({
         </div>
 
         {/* Right Column: Lobby Chat (5 Cols) */}
-        <div className="lg:col-span-5 flex flex-col bg-zinc-950/80 border border-zinc-800 rounded-3xl shadow-xl overflow-hidden h-[300px] sm:h-[420px]">
+        <div className="lg:col-span-5 flex flex-col bg-zinc-950/80 border border-zinc-800 rounded-3xl shadow-xl overflow-hidden h-[420px]">
           <div className="p-3.5 border-b border-zinc-800 bg-zinc-900/50 flex items-center gap-2 text-xs font-bold text-zinc-300">
             <MessageSquare className="w-4 h-4 text-cyan-400" />
             <span>Kênh Trò Chuyện Sảnh Chờ</span>

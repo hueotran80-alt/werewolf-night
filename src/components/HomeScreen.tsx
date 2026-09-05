@@ -52,6 +52,10 @@ export const HomeScreen: React.FC<Props> = ({
   const generateRandomName = () => {
     const prefixes = [
       'Thợ Săn',
+      'Lý',
+      'Liên',
+      'Tao',
+      'Mày',
       'Tiên Tri',
       'Bảo Hộ',
       'Kỵ Sĩ',
@@ -63,6 +67,10 @@ export const HomeScreen: React.FC<Props> = ({
 
     const names = [
       'Bóng Đêm',
+      'Bị ngu',
+      'Xinh gái',
+      'Đẹp trai',
+      'Mới chơi',
       'Ánh Trăng',
       'Ngân Hà',
       'Huyết Tộc',
@@ -151,7 +159,7 @@ export const HomeScreen: React.FC<Props> = ({
             </h1>
 
             <p className="text-[10px] text-zinc-400 font-mono">
-              Diễn xuất không qua mắt nổi Trần Xuân Hùng ĐZ đâu!
+              Đời cho ta vai diễn tội gì ta lại không diễn cho trót !
             </p>
           </div>
 
@@ -180,7 +188,7 @@ export const HomeScreen: React.FC<Props> = ({
             <Sparkles className="w-3.5 h-3.5 text-rose-400" />
 
             <span>
-              Màn đêm buông xuống • Cănphongf lạnh lẽo
+              Màn đêm buông xuống • Căn phòng lạnh lẽo
             </span>
 
           </div>
@@ -190,9 +198,7 @@ export const HomeScreen: React.FC<Props> = ({
           </h2>
 
           <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed">
-            Trải nghiệm game Ma Sói thời gian thực với công nghệ
-            Authoritative Game Server, bảo mật danh tính và hệ thống
-            13 vai trò mở rộng.
+            Trải nghiệm game Ma Sói cùng bạn bè với nhiều cách chơi phong phú, kể cả người mới cũng có thể chơi dễ dàng
           </p>
 
         </div>
@@ -312,7 +318,7 @@ export const HomeScreen: React.FC<Props> = ({
             <div>
 
               <div className="font-bold text-xs text-white font-serif">
-                14 THẺ BÀI & VAI TRÒ
+                15 THẺ BÀI & VAI TRÒ
               </div>
 
               <p className="text-[11px] text-zinc-400 mt-0.5">

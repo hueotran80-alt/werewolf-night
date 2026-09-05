@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import { AccessToken } from 'livekit-server-sdk';
 import http from 'http';
@@ -21,6 +22,12 @@ import {
   HostTransferRequest,
 } from './src/types';
 import { ROLES_DATABASE, DECK_PRESETS, MODE_PLAYER_RANGE } from './src/data/rolesData';
+import {
+  maybeBotReplyToChat,
+  chooseBotNightAction,
+  chooseBotVote,
+  MAX_SMART_BOTS_PER_ROOM,
+} from './src/services/aiBotService';
 
 // Hầu hết nền tảng cloud (Render, Railway, Fly.io, Heroku...) tự cấp một
 // biến môi trường PORT và yêu cầu server lắng nghe đúng cổng đó. Nếu không
@@ -747,6 +754,7 @@ function enterNightStep(room: RoomData, step: NightState['currentStep']) {
   }
 
   simulateBotNightStep(room);
+  void simulateSmartBotNightStep(room);
 
   if (
     room.gameState?.currentPhase === 'NIGHT' &&
@@ -840,7 +848,7 @@ function simulateBotNightStep(room: RoomData) {
   const ns = room.gameState?.nightState;
   if (!ns) return;
 
-  const bots = room.players.filter((p) => p.isAlive && p.isBot && p.role);
+  const bots = room.players.filter((p) => p.isAlive && p.isBot && p.botType !== 'GEMINI' && p.role);
   const alive = room.players.filter((p) => p.isAlive);
 
   if (ns.currentStep === 'CUPID_PAIR') {
@@ -1003,6 +1011,37 @@ function simulateBotNightStep(room: RoomData) {
         }
       }
     });
+  }
+}
+
+
+async function simulateSmartBotNightStep(room: RoomData) {
+  const ns = room.gameState?.nightState;
+  if (!ns) return;
+
+  const smartBots = room.players.filter(
+    (p) => p.isAlive && p.isBot && p.botType === 'GEMINI' && p.role
+  );
+  if (smartBots.length === 0) return;
+
+  // Gemini chỉ điều khiển các bot được đánh dấu GEMINI. Bot Test cũ
+  // tiếp tục chạy bằng logic cũ và không bị Gemini can thiệp.
+  const stepAtStart = ns.currentStep;
+  for (const smartBot of smartBots) {
+    if (
+      room.gameState?.currentPhase !== 'NIGHT' ||
+      room.gameState?.nightState?.currentStep !== stepAtStart
+    ) return;
+
+    const aiAction = await chooseBotNightAction(room, smartBot);
+    if (
+      room.gameState?.currentPhase !== 'NIGHT' ||
+      room.gameState?.nightState?.currentStep !== stepAtStart
+    ) return;
+
+    if (aiAction) {
+      handleNightAction(room, smartBot.id, aiAction);
+    }
   }
 }
 
@@ -1767,7 +1806,7 @@ function startVotingPhase(room: RoomData) {
   broadcastRoom(room.id, 'PHASE_CHANGED', { newPhase: 'VOTING' });
 
   // Simulate bot votes
-  simulateBotVotes(room);
+  void simulateBotVotes(room);
 
   // Voting timeout -> Resolve votes
   setTimeout(() => {
@@ -1782,7 +1821,9 @@ function simulateBotVotes(room: RoomData) {
   if (!vs) return;
 
   const alivePlayers = room.players.filter((p) => p.isAlive);
-  const aliveBots = alivePlayers.filter((p) => p.isBot);
+  const aliveBots = alivePlayers.filter(
+    (p) => p.isBot && p.botType !== 'GEMINI'
+  );
 
   aliveBots.forEach((bot) => {
     const potentialTargets = alivePlayers.filter((p) => p.id !== bot.id);
@@ -1791,6 +1832,26 @@ function simulateBotVotes(room: RoomData) {
       vs.votes[bot.id] = chosen.id;
     }
   });
+
+  void simulateSmartBotVotes(room);
+}
+
+async function simulateSmartBotVotes(room: RoomData) {
+  const vs = room.gameState?.votingState;
+  if (!vs) return;
+
+  const smartBots = room.players.filter(
+    (p) => p.isAlive && p.isBot && p.botType === 'GEMINI' && p.role
+  );
+
+  for (const bot of smartBots) {
+    if (room.gameState?.currentPhase !== 'VOTING') return;
+    const chosenId = await chooseBotVote(room, bot, roomChatMap);
+    if (chosenId && room.gameState?.votingState && !room.gameState.votingState.isLocked) {
+      room.gameState.votingState.votes[bot.id] = chosenId;
+      broadcastRoom(room.id, 'VOTE_UPDATED');
+    }
+  }
 }
 
 // Resolve Daytime Voting
@@ -2195,6 +2256,23 @@ wss.on('connection', (ws: WebSocket, req) => {
               sendToPlayer(p.id, 'NEW_CHAT', { message: chatMsg });
             }
           });
+
+          // One Gemini-powered bot can participate in the public room chat.
+          if (channel === 'LOBBY' || channel === 'DAY_PUBLIC') {
+            const smartBots = room.players.filter(
+              (p) => p.isBot && p.botType === 'GEMINI' && p.id !== player.id
+            );
+            smartBots.forEach((bot) => {
+              void maybeBotReplyToChat(room, bot, roomChatMap, channel, (botMessage) => {
+                const chats = roomChatMap.get(roomId) || [];
+                chats.push(botMessage);
+                roomChatMap.set(roomId, chats.slice(-100));
+                room.players.forEach((recipient) => {
+                  sendToPlayer(recipient.id, 'NEW_CHAT', { message: botMessage });
+                });
+              });
+            });
+          }
           break;
         }
 
@@ -2383,6 +2461,7 @@ wss.on('connection', (ws: WebSocket, req) => {
             isAlive: true,
             isReady: true,
             isBot: true,
+            botType: 'LEGACY',
             socketConnected: true,
             lastActive: Date.now(),
           };
@@ -2395,6 +2474,58 @@ wss.on('connection', (ws: WebSocket, req) => {
             if (autoDeck) {
               room.deck = autoDeck;
             }
+          }
+
+          broadcastRoom(roomId, 'ROOM_STATE');
+          break;
+        }
+
+        case 'ADD_SMART_BOT_REQUEST': {
+          if (!roomId || !playerId) return;
+          const room = rooms.get(roomId);
+          if (!room || room.hostPlayerId !== playerId || room.status !== 'WAITING') return;
+
+          if (room.players.length >= room.settings.maxPlayers) {
+            sendToPlayer(playerId, 'ERROR', { message: 'Phòng chơi đã đạt tối đa số người.' });
+            return;
+          }
+
+          const smartBotCount = room.players.filter(
+            (p) => p.isBot && p.botType === 'GEMINI'
+          ).length;
+
+          if (smartBotCount >= MAX_SMART_BOTS_PER_ROOM) {
+            sendToPlayer(playerId, 'ERROR', {
+              message: 'Phòng hiện chỉ cho phép 1 Bot Gemini thông minh. Giới hạn này có thể mở rộng trong phiên bản sau.',
+            });
+            return;
+          }
+
+          const smartBotNames = ['Linh AI'];
+          const availableName = smartBotNames.find(
+            (name) => !room.players.some((p) => p.nickname === name)
+          );
+          const botNickname = availableName || `Gemini Bot #${smartBotCount + 1}`;
+
+          const botPlayer: Player = {
+            id: `gemini_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            nickname: botNickname,
+            avatarSeed: 'bot_Linh_AI',
+            isHost: false,
+            isAlive: true,
+            isReady: true,
+            isBot: true,
+            botType: 'GEMINI',
+            botProfileId: 'LINH',
+            socketConnected: true,
+            lastActive: Date.now(),
+          };
+
+          room.players.push(botPlayer);
+
+          if (room.deck.length > 0) {
+            const autoDeck = getAutoDeckForPlayerCount(room.players.length);
+            if (autoDeck) room.deck = autoDeck;
           }
 
           broadcastRoom(roomId, 'ROOM_STATE');
