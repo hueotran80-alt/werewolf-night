@@ -95,6 +95,7 @@ export interface Player {
   lastActive: number;
   isSilenced?: boolean;
   silencedUntilRound?: number;
+  avatarUrl?: string;
 }
 
 export interface DeckCardConfig {
@@ -253,6 +254,15 @@ export interface GameState {
   };
   hunterMustShootPlayerId?: string;
   logs: GameEventLog[];
+  isPaused?: boolean;
+  pausedByPlayerId?: string;
+  pausedByPlayerName?: string;
+  pausedAt?: number;
+  pausedRemainingMs?: number;
+  pauseSummary?: {
+    nightEvents: string[];
+    voteEvents: string[];
+  };
 }
 
 export interface RoomData {
@@ -277,7 +287,8 @@ export interface ChatMessage {
   avatarSeed: string;
   text: string;
   timestamp: number;
-  channel: 'LOBBY' | 'DAY_PUBLIC' | 'GHOST_PRIVATE' | 'WOLF_PRIVATE';
+  channel: 'LOBBY' | 'DAY_PUBLIC' | 'GHOST_PRIVATE' | 'WOLF_PRIVATE' | 'PRIVATE';
+  recipientId?: string;
   isSystem?: boolean;
 }
 
@@ -313,7 +324,9 @@ export type WsMessageType =
   | 'KICK_PLAYER_REQUEST'
   | 'VOICE_STATUS_UPDATE'
   | 'VOICE_SIGNAL'
-  | 'VOICE_FORCE_MUTE_ALL';
+  | 'VOICE_FORCE_MUTE_ALL'
+  | 'GAME_PAUSE_TOGGLE'
+  | 'GAME_RESET_REQUEST';
 
 export interface WsMessagePayload {
   type: WsMessageType;

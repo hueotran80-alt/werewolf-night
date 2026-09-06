@@ -20,6 +20,7 @@ interface Props {
     channel: 'DAY_PUBLIC' | 'GHOST_PRIVATE'
   ) => void;
   onOpenMyCard: () => void;
+  onPlayerAvatarClick: (playerId: string) => void;
 }
 
 export const DayPhaseView: React.FC<Props> = ({
@@ -28,6 +29,7 @@ export const DayPhaseView: React.FC<Props> = ({
   chatMessages,
   onSendChat,
   onOpenMyCard,
+  onPlayerAvatarClick,
 }) => {
   const [inputText, setInputText] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -418,11 +420,18 @@ export const DayPhaseView: React.FC<Props> = ({
                 >
 
                   <div className="flex items-center gap-1.5 mb-0.5 text-[10px] text-zinc-400">
-
+                    {!isSenderMe && (() => {
+                      const sender = room.players.find((p) => p.id === msg.senderId);
+                      if (!sender) return null;
+                      return (
+                        <button type="button" onClick={() => onPlayerAvatarClick(sender.id)} className="relative w-5 h-5 rounded-lg overflow-hidden bg-zinc-800 border border-zinc-700">
+                          {sender.avatarUrl ? <img src={sender.avatarUrl} alt="" className="w-full h-full object-cover" /> : sender.nickname.charAt(0).toUpperCase()}
+                          <span className={`absolute right-0 bottom-0 w-1.5 h-1.5 rounded-full border border-zinc-950 ${sender.socketConnected ? 'bg-emerald-400' : 'bg-rose-500'}`} />
+                        </button>
+                      );
+                    })()}
                     <span className="font-semibold text-zinc-300">
-                      {isSenderMe
-                        ? 'Bạn'
-                        : msg.senderName}
+                      {isSenderMe ? 'Bạn' : msg.senderName}
                     </span>
 
                     {isGhostChat && (

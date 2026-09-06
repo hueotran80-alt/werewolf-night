@@ -14,6 +14,8 @@ import { CardLibraryModal } from './components/CardLibraryModal';
 import { GuideModal } from './components/GuideModal';
 import { SettingsModal } from './components/SettingsModal';
 import { HostTransferModal } from './components/HostTransferModal';
+import { PlayerInteractionModal } from './components/PlayerInteractionModal';
+import { PauseOverlay } from './components/PauseOverlay';
 import { AlertCircle, Eye, Check, X, Sparkles, RefreshCw } from 'lucide-react';
 
 interface ErrorBoundaryProps {
@@ -102,6 +104,14 @@ function GameRoot() {
     activeTransferRequest,
     seerResultPopup,
     clearSeerPopup,
+    sendPrivateChat,
+    blockedMicIds,
+    blockedChatIds,
+    toggleBlockedMic,
+    toggleBlockedChat,
+    pauseGame,
+    resumeGame,
+    resetGame,
   } = useGame();
 
   // Modal Visibility States
@@ -110,6 +120,7 @@ function GameRoot() {
   const [showGuide, setShowGuide] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showStartDeal, setShowStartDeal] = useState(false);
+  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   useEffect(() => {
   if (currentRoom && gameState?.currentPhase === 'ROLE_REVEAL') {
     setShowStartDeal(true);
@@ -125,8 +136,8 @@ function GameRoot() {
         <HomeScreen
           nickname={nickname}
           onSetNickname={setNickname}
-          onCreateRoom={(pName) => createRoom(pName)}
-          onJoinRoom={(code, pName) => joinRoom(code, pName)}
+          onCreateRoom={(pName, avatarUrl) => createRoom(pName, undefined, avatarUrl)}
+          onJoinRoom={(code, pName, avatarUrl) => joinRoom(code, pName, avatarUrl)}
           onOpenDeckLibrary={() => setShowDeckLibrary(true)}
           onOpenGuide={() => setShowGuide(true)}
           onOpenSettings={() => setShowSettings(true)}
@@ -163,6 +174,10 @@ function GameRoot() {
 
   // Active in a Room -> Render respective phase
   const currentPhase = gameState?.currentPhase || 'LOBBY';
+  const visibleChatMessages = chatMessages.filter((m) => {
+    if (m.channel === 'PRIVATE') return true;
+    return !blockedChatIds.includes(m.senderId);
+  });
 
   return (
     <div className="min-h-screen bg-[#05070E] text-zinc-100 flex flex-col justify-between relative overflow-x-hidden">
@@ -181,6 +196,14 @@ function GameRoot() {
         </div>
 
         <div className="flex items-center gap-2">
+          {gameState && gameState.currentPhase !== 'LOBBY' && gameState.currentPhase !== 'GAME_OVER' && (
+            <button
+              onClick={() => gameState.isPaused ? resumeGame() : pauseGame()}
+              className="px-3 py-1.5 rounded-xl bg-amber-950/50 hover:bg-amber-900/60 border border-amber-800/50 text-amber-300 text-xs font-bold transition"
+            >
+              {gameState.isPaused ? '▶ Tiếp tục' : '⏸ Tạm dừng'}
+            </button>
+          )}
           <button
             onClick={() => setShowGuide(true)}
             className="px-3 py-1.5 rounded-xl bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-medium transition"
@@ -205,7 +228,7 @@ function GameRoot() {
             room={currentRoom}
             myPlayer={myPlayer}
             isHost={isHost}
-            chatMessages={chatMessages}
+            chatMessages={visibleChatMessages}
             onStartGame={startGame}
             onUpdateDeck={updateDeck}
             onUpdateSettings={updateSettings}
@@ -215,6 +238,7 @@ function GameRoot() {
             onTransferHost={transferHost}
             onLeaveRoom={leaveRoom}
             onSendChat={(text) => sendChat(text, 'LOBBY')}
+            onPlayerAvatarClick={setSelectedPlayerId}
           />
         )}
 
@@ -244,6 +268,7 @@ function GameRoot() {
             myRole={myRole}
             onSubmitAction={submitAction}
             onOpenMyCard={() => setShowMyCard(true)}
+            onPlayerAvatarClick={setSelectedPlayerId}
           />
         )}
 
@@ -252,9 +277,10 @@ function GameRoot() {
             room={currentRoom}
             myPlayer={myPlayer}
             myRole={myRole}
-            chatMessages={chatMessages}
+            chatMessages={visibleChatMessages}
             onSendChat={(text, channel) => sendChat(text, channel)}
             onOpenMyCard={() => setShowMyCard(true)}
+            onPlayerAvatarClick={setSelectedPlayerId}
           />
         )}
 
@@ -265,6 +291,7 @@ function GameRoot() {
             myRole={myRole}
             onSubmitVote={submitVote}
             onOpenMyCard={() => setShowMyCard(true)}
+            onPlayerAvatarClick={setSelectedPlayerId}
           />
         )}
 
@@ -281,6 +308,37 @@ function GameRoot() {
       </main>
 
       {/* Floating Modals */}
+      {selectedPlayerId && currentRoom && myPlayer && selectedPlayerId !== myPlayer.id && (() => {
+        const selected = currentRoom.players.find((p) => p.id === selectedPlayerId);
+        if (!selected) return null;
+        return (
+          <PlayerInteractionModal
+            player={selected}
+            myPlayerId={myPlayer.id}
+            isHost={isHost}
+            messages={chatMessages}
+            blockedMic={blockedMicIds.includes(selected.id)}
+            blockedChat={blockedChatIds.includes(selected.id)}
+            onToggleMicBlock={() => toggleBlockedMic(selected.id)}
+            onToggleChatBlock={() => toggleBlockedChat(selected.id)}
+            onKick={() => { kickPlayer(selected.id); setSelectedPlayerId(null); }}
+            canKick={currentPhase === 'LOBBY'}
+            onTransferHost={() => { transferHost(selected.id); setSelectedPlayerId(null); }}
+            onSendPrivate={(text) => sendPrivateChat(text, selected.id)}
+            onClose={() => setSelectedPlayerId(null)}
+          />
+        );
+      })()}
+
+      {gameState && (
+        <PauseOverlay
+          gameState={gameState}
+          isHost={isHost}
+          onResume={resumeGame}
+          onReset={resetGame}
+        />
+      )}
+
       <MyCardModal
         isOpen={showMyCard}
         onClose={() => setShowMyCard(false)}

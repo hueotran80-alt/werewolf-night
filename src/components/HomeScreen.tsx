@@ -15,8 +15,8 @@ import { audioService } from '../services/audioService';
 interface Props {
   nickname: string;
   onSetNickname: (name: string) => void;
-  onCreateRoom: (nickname: string) => void;
-  onJoinRoom: (code: string, nickname: string) => void;
+  onCreateRoom: (nickname: string, avatarUrl?: string) => void;
+  onJoinRoom: (code: string, nickname: string, avatarUrl?: string) => void;
   onOpenDeckLibrary: () => void;
   onOpenGuide: () => void;
   onOpenSettings: () => void;
@@ -34,6 +34,7 @@ export const HomeScreen: React.FC<Props> = ({
   const [nameInput, setNameInput] = useState(nickname || '');
   const [roomCodeInput, setRoomCodeInput] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string>('');
 
   // ============================================================
   // NHẠC NỀN TRANG CHÍNH
@@ -106,7 +107,7 @@ export const HomeScreen: React.FC<Props> = ({
     // Tiếng sói hú khi bắt đầu tạo phòng
     audioService.playWolfHowl();
 
-    onCreateRoom(cleanName);
+    onCreateRoom(cleanName, avatarUrl || undefined);
   };
 
   // ============================================================
@@ -133,7 +134,7 @@ export const HomeScreen: React.FC<Props> = ({
     // Tiếng sói hú khi vào phòng
     audioService.playWolfHowl();
 
-    onJoinRoom(cleanRoomCode, cleanName);
+    onJoinRoom(cleanRoomCode, cleanName, avatarUrl || undefined);
   };
 
   return (
@@ -174,6 +175,59 @@ export const HomeScreen: React.FC<Props> = ({
         </button>
 
       </header>
+
+      {/* ========================================================
+          AVATAR
+      ======================================================== */}
+      <div className="relative z-10 w-full max-w-6xl mx-auto px-4 mt-2">
+        <div className="flex items-center gap-3">
+          <label className="cursor-pointer group">
+            <div className="w-14 h-14 rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-700 flex items-center justify-center text-zinc-500 group-hover:border-cyan-500 transition">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-xl">👤</span>
+              )}
+            </div>
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                if (!file.type.startsWith('image/')) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                  const img = new Image();
+                  img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const max = 256;
+                    const scale = Math.min(1, max / Math.max(img.width, img.height));
+                    canvas.width = Math.max(1, Math.round(img.width * scale));
+                    canvas.height = Math.max(1, Math.round(img.height * scale));
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) return;
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    setAvatarUrl(canvas.toDataURL('image/jpeg', 0.78));
+                  };
+                  img.src = String(reader.result);
+                };
+                reader.readAsDataURL(file);
+              }}
+            />
+          </label>
+          <div>
+            <div className="text-xs font-bold text-zinc-200">Ảnh đại diện <span className="text-zinc-500 font-normal">(tùy chọn)</span></div>
+            <div className="text-[10px] text-zinc-500 mt-0.5">Bạn có thể bỏ qua và dùng chữ cái đầu tên.</div>
+          </div>
+          {avatarUrl && (
+            <button type="button" onClick={() => setAvatarUrl('')} className="text-[10px] text-rose-400 hover:text-rose-300">
+              Xóa ảnh
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* ========================================================
           MAIN

@@ -219,6 +219,72 @@ export async function maybeBotReplyToChat(
   }
 }
 
+export async function maybeBotReplyToPrivateChat(
+  room: RoomData,
+  bot: Player,
+  human: Player,
+  userText: string,
+  sendMessage: (message: ChatMessage) => void,
+) {
+  const ai = getClient();
+  if (!ai || bot.botType !== 'GEMINI') return;
+  const key = `${room.id}:${bot.id}:private:${human.id}`;
+  const memory = botConversationMemory.get(key) || [];
+
+  try {
+    const role = bot.role ? ROLES_DATABASE[bot.role] : undefined;
+    const conversation = memory.slice(-16).map((m) => `${m.senderName}: ${m.text}`).join('\\n');
+    const prompt = `Bạn là ${bot.nickname}, người chơi thật trong game Ma Sói Việt Nam.
+Đây là cuộc chat RIÊNG với ${human.nickname}; chỉ hai người nhìn thấy.
+Vai trò bí mật của bạn: ${role?.vietnameseName || 'chưa được chia'}.
+Phe: ${role?.team || 'chưa biết'}.
+Mục tiêu: ${role?.objective || 'chơi tự nhiên và cố thắng'}.
+Không được nói mình là AI. Không được tiết lộ vai trò hoặc thông tin bí mật trừ khi chiến thuật của bạn thực sự cần nói dối/đánh lạc hướng.
+Hãy trả lời đúng nội dung người chơi vừa nhắn, tự nhiên như hội thoại nhiều lượt, có thể hỏi ngược hoặc phản biện nhưng không hỏi máy móc.
+Lịch sử:
+${conversation || '(chưa có)'}
+
+${human.nickname}: ${userText}
+
+Chỉ trả về nội dung tin nhắn, không markdown, không JSON.`;
+
+    const response = await ai.models.generateContent({
+      model: MODEL,
+      contents: prompt,
+      config: { temperature: 0.85, maxOutputTokens: 220 },
+    });
+    const text = response.text?.trim();
+    if (!text) return;
+
+    const now = Date.now();
+    const userMsg: ChatMessage = {
+      id: `memory_private_user_${now}_${Math.random().toString(36).slice(2, 5)}`,
+      senderId: human.id,
+      senderName: human.nickname,
+      avatarSeed: human.avatarSeed,
+      text: userText,
+      timestamp: now,
+      channel: 'PRIVATE',
+      recipientId: bot.id,
+    };
+    const botMsg: ChatMessage = {
+      id: `chat_private_bot_${now}_${Math.random().toString(36).slice(2, 6)}`,
+      senderId: bot.id,
+      senderName: bot.nickname,
+      avatarSeed: bot.avatarSeed,
+      text: text.slice(0, 500),
+      timestamp: now,
+      channel: 'PRIVATE',
+      recipientId: human.id,
+    };
+
+    botConversationMemory.set(key, [...memory, userMsg, botMsg].slice(-MAX_CONVERSATION_MEMORY));
+    sendMessage(botMsg);
+  } catch (error) {
+    console.error('[GEMINI PRIVATE CHAT]', error);
+  }
+}
+
 export async function chooseBotNightAction(room: RoomData, bot: Player): Promise<GameAction | null> {
   const ai = getClient();
   if (!ai || !bot.role || !room.gameState?.nightState) return null;

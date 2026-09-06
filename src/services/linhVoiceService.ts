@@ -60,6 +60,7 @@ async function createSession(roomName: string): Promise<LinhVoiceRoom | null> {
   const room = new Room();
   await room.connect(toWsUrl(url), jwt, {
     autoSubscribe: false,
+    dynacast: false,
   });
 
   const source = new AudioSource(SAMPLE_RATE, CHANNELS);

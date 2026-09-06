@@ -28,6 +28,7 @@ import {
   chooseBotNightAction,
   chooseBotVote,
   MAX_SMART_BOTS_PER_ROOM,
+  maybeBotReplyToPrivateChat,
 } from './src/services/aiBotService';
 
 // Hầu hết nền tảng cloud (Render, Railway, Fly.io, Heroku...) tự cấp một
@@ -39,13 +40,46 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '700kb' }));
 
 // In-Memory Storage
 const rooms: Map<string, RoomData> = new Map();
 const playerSockets: Map<string, Set<WebSocket>> = new Map(); // playerId -> WebSockets
 const socketPlayerMap: Map<WebSocket, { playerId: string; roomId: string }> = new Map();
 const roomChatMap: Map<string, ChatMessage[]> = new Map(); // roomId -> ChatMessage[]
+
+/**
+ * Game timers are tracked per room so a pause can freeze the authoritative
+ * state without leaving an old timeout capable of advancing the game early.
+ */
+const roomTimers: Map<string, Set<ReturnType<typeof setTimeout>>> = new Map();
+
+function scheduleRoomTimeout(
+  room: RoomData,
+  callback: () => void,
+  delayMs: number,
+) {
+  const timers = roomTimers.get(room.id) || new Set<ReturnType<typeof setTimeout>>();
+  roomTimers.set(room.id, timers);
+
+  const timer = setTimeout(() => {
+    timers.delete(timer);
+    if (timers.size === 0) roomTimers.delete(room.id);
+    callback();
+  }, Math.max(0, delayMs));
+
+  timers.add(timer);
+  return timer;
+}
+
+function clearRoomTimers(room: RoomData) {
+  const timers = roomTimers.get(room.id);
+  if (!timers) return;
+  timers.forEach((timer) => clearTimeout(timer));
+  timers.clear();
+  roomTimers.delete(room.id);
+}
+
 
 // Default Room Settings
 const DEFAULT_SETTINGS: RoomSettings = {
@@ -426,6 +460,7 @@ function startGame(room: RoomData) {
     deck: room.deck,
     lastNightVictims: [],
     deathRebuttalPlayerIds: [],
+    isPaused: false,
     logs: [
       {
         id: `log_${Date.now()}_start`,
@@ -442,7 +477,7 @@ function startGame(room: RoomData) {
   broadcastRoom(room.id, 'ROLE_ASSIGNED');
 
   // Transition to Night 1 after Role Reveal
-  setTimeout(() => {
+  scheduleRoomTimeout(room, () => {
     if (room.gameState && room.gameState.currentPhase === 'ROLE_REVEAL') {
       startNightPhase(room);
     }
@@ -562,6 +597,21 @@ function forceDeathRebuttalVoice(room: RoomData) {
   broadcastRoom(room.id, 'VOICE_STATUS_UPDATE', { voiceStates: room.voiceStates });
 }
 
+function finishDeathRebuttal(room: RoomData) {
+  if (room.gameState?.currentPhase !== 'DEATH_REBUTTAL') return;
+  room.gameState.deathRebuttalPlayerIds = [];
+  forceNightVoice(room, false);
+
+  const victoryCheck = checkVictory(room);
+  if (victoryCheck.gameOver) {
+    triggerGameOver(room, victoryCheck.winner!, victoryCheck.message!);
+    return;
+  }
+
+  room.gameState.roundNumber += 1;
+  startNightPhase(room);
+}
+
 function startDeathRebuttal(room: RoomData, playerIds: string[]) {
   if (!room.gameState || playerIds.length === 0) return false;
 
@@ -600,19 +650,8 @@ function startDeathRebuttal(room: RoomData, playerIds: string[]) {
   forceDeathRebuttalVoice(room);
   broadcastRoom(room.id, 'PHASE_CHANGED', { newPhase: 'DEATH_REBUTTAL' });
 
-  setTimeout(() => {
-    if (room.gameState?.currentPhase !== 'DEATH_REBUTTAL') return;
-    room.gameState.deathRebuttalPlayerIds = [];
-    forceNightVoice(room, false);
-
-    const victoryCheck = checkVictory(room);
-    if (victoryCheck.gameOver) {
-      triggerGameOver(room, victoryCheck.winner!, victoryCheck.message!);
-      return;
-    }
-
-    room.gameState.roundNumber += 1;
-    startNightPhase(room);
+  scheduleRoomTimeout(room, () => {
+    finishDeathRebuttal(room);
   }, 30050);
 
   return true;
@@ -771,7 +810,7 @@ function enterNightStep(room: RoomData, step: NightState['currentStep']) {
     return;
   }
 
-  setTimeout(() => {
+  scheduleRoomTimeout(room, () => {
     const current = room.gameState?.nightState;
     if (
       room.gameState?.currentPhase === 'NIGHT' &&
@@ -1486,7 +1525,7 @@ function handleHunterRevengeAction(room: RoomData, playerId: string, action: Gam
   room.gameState.currentPhase = 'VOTE_RESOLUTION';
   broadcastRoom(room.id, 'PHASE_CHANGED', { newPhase: 'VOTE_RESOLUTION' });
 
-  setTimeout(() => {
+  scheduleRoomTimeout(room, () => {
     if (room.gameState?.currentPhase !== 'VOTE_RESOLUTION') return;
     startDeathRebuttal(room, [hunterId, target.id]);
   }, 250);
@@ -1690,7 +1729,7 @@ function triggerHunterRevenge(room: RoomData, hunterPlayerId: string) {
 
   // If hunter is bot, auto shoot
   if (hunter?.isBot) {
-    setTimeout(() => {
+    scheduleRoomTimeout(room, () => {
       const living = room.players.filter((p) => p.isAlive && p.id !== hunter.id);
       if (living.length > 0) {
         const shotTarget = living[Math.floor(Math.random() * living.length)];
@@ -1711,12 +1750,38 @@ function triggerHunterRevenge(room: RoomData, hunterPlayerId: string) {
     }, 3000);
   } else {
     // Wait for Hunter action or timeout
-    setTimeout(() => {
+    scheduleRoomTimeout(room, () => {
       if (room.gameState && room.gameState.currentPhase === 'HUNTER_REVENGE') {
         startDeathRebuttal(room, [hunterPlayerId]);
       }
     }, 15000);
   }
+}
+
+function startDayDiscussion(room: RoomData) {
+  if (!room.gameState) return;
+  const discTime = room.settings.discussionTimeSeconds || 60;
+  room.gameState.currentPhase = 'DAY_DISCUSSION';
+  room.gameState.phaseDuration = discTime;
+  room.gameState.phaseEndsAt = Date.now() + discTime * 1000;
+
+  room.gameState.logs.push({
+    id: `log_disc_${Date.now()}`,
+    round: room.gameState.roundNumber,
+    phase: 'DAY_DISCUSSION',
+    timestamp: Date.now(),
+    message: `🗣️ Hội nghị Làng bắt đầu! Người chơi còn sống có ${discTime} giây để tranh luận và tìm ra Ma Sói.`,
+    type: 'INFO',
+    isPublic: true,
+  });
+
+  broadcastRoom(room.id, 'PHASE_CHANGED', { newPhase: 'DAY_DISCUSSION' });
+
+  scheduleRoomTimeout(room, () => {
+    if (room.gameState && room.gameState.currentPhase === 'DAY_DISCUSSION') {
+      startVotingPhase(room);
+    }
+  }, discTime * 1000);
 }
 
 // Start Day Phase
@@ -1749,31 +1814,8 @@ function startDayPhase(room: RoomData) {
   broadcastRoom(room.id, 'PHASE_CHANGED', { newPhase: 'DAY_ANNOUNCEMENT' });
 
   // Transition to Discussion
-  setTimeout(() => {
-    if (!room.gameState) return;
-    const discTime = room.settings.discussionTimeSeconds || 60;
-    room.gameState.currentPhase = 'DAY_DISCUSSION';
-    room.gameState.phaseDuration = discTime;
-    room.gameState.phaseEndsAt = Date.now() + discTime * 1000;
-
-    room.gameState.logs.push({
-      id: `log_disc_${Date.now()}`,
-      round: room.gameState.roundNumber,
-      phase: 'DAY_DISCUSSION',
-      timestamp: Date.now(),
-      message: `🗣️ Hội nghị Làng bắt đầu! Người chơi còn sống có ${discTime} giây để tranh luận và tìm ra Ma Sói.`,
-      type: 'INFO',
-      isPublic: true,
-    });
-
-    broadcastRoom(room.id, 'PHASE_CHANGED', { newPhase: 'DAY_DISCUSSION' });
-
-    // After discussion -> Start Voting
-    setTimeout(() => {
-      if (room.gameState && room.gameState.currentPhase === 'DAY_DISCUSSION') {
-        startVotingPhase(room);
-      }
-    }, discTime * 1000);
+  scheduleRoomTimeout(room, () => {
+    startDayDiscussion(room);
   }, 8000);
 }
 
@@ -1810,7 +1852,7 @@ function startVotingPhase(room: RoomData) {
   void simulateBotVotes(room);
 
   // Voting timeout -> Resolve votes
-  setTimeout(() => {
+  scheduleRoomTimeout(room, () => {
     if (room.gameState && room.gameState.currentPhase === 'VOTING') {
       resolveVotes(room);
     }
@@ -1865,8 +1907,10 @@ function resolveVotes(room: RoomData) {
   // Calculate vote counts with Mayor weighing 2x
   const counts: Record<string, number> = {};
   Object.entries(vs.votes).forEach(([voterId, targetId]) => {
+    if (targetId === 'ABSTAIN') return;
     const voter = room.players.find((p) => p.id === voterId);
-    if (voter && voter.isAlive) {
+    const target = room.players.find((p) => p.id === targetId);
+    if (voter && target && voter.isAlive && target.isAlive) {
       const weight = voter.role === 'MAYOR' ? 2 : 1;
       counts[targetId] = (counts[targetId] || 0) + weight;
     }
@@ -1887,6 +1931,7 @@ function resolveVotes(room: RoomData) {
 
   // Record the complete ballot only for the final post-game journal.
   Object.entries(vs.votes).forEach(([voterId, targetId]) => {
+    if (targetId === 'ABSTAIN') return;
     const voter = room.players.find((p) => p.id === voterId);
     const target = room.players.find((p) => p.id === targetId);
     if (!voter || !target || !voter.isAlive) return;
@@ -1965,7 +2010,7 @@ function resolveVotes(room: RoomData) {
       // If Hunter was lynched -> Trigger Hunter revenge
       if (target.role === 'HUNTER') {
         broadcastRoom(room.id, 'PHASE_CHANGED', { newPhase: 'VOTE_RESOLUTION' });
-        setTimeout(() => {
+        scheduleRoomTimeout(room, () => {
           triggerHunterRevenge(room, target.id);
         }, 5000);
         return;
@@ -1995,7 +2040,7 @@ function resolveVotes(room: RoomData) {
   // Check victory after vote
   const victoryCheck = checkVictory(room);
   if (victoryCheck.gameOver) {
-    setTimeout(() => {
+    scheduleRoomTimeout(room, () => {
       triggerGameOver(room, victoryCheck.winner!, victoryCheck.message!);
     }, 5000);
     return;
@@ -2007,7 +2052,7 @@ function resolveVotes(room: RoomData) {
   }
 
   // Không có người chết: chuyển thẳng sang đêm mới.
-  setTimeout(() => {
+  scheduleRoomTimeout(room, () => {
     if (!room.gameState) return;
     room.gameState.roundNumber += 1;
     startNightPhase(room);
@@ -2053,6 +2098,131 @@ function triggerGameOver(room: RoomData, winner: any, message: string) {
 }
 
 // ----------------------------------------------------------------------------
+function buildPauseSummary(room: RoomData) {
+  const gs = room.gameState;
+  const nightEvents = (gs?.lastNightVictims || []).map((v) => {
+    const role = v.roleName || 'người chơi';
+    if (v.reason.includes('Ma Sói')) return `Đêm qua Sói đã cắn ${role}.`;
+    if (v.reason.includes('Sát Nhân')) return `Đêm qua Kẻ Sát Nhân đã hạ ${role}.`;
+    if (v.reason.includes('Thợ Săn')) return `Thợ Săn đã bắn ${role}.`;
+    if (v.reason.includes('độc')) return `Đêm qua Phù Thủy đã đầu độc ${role}.`;
+    return `Đêm qua ${role} đã bị hạ.`;
+  });
+
+  const voteEvents = Object.entries(gs?.votingState?.votes || {})
+    .filter(([, targetId]) => targetId !== 'ABSTAIN')
+    .map(([voterId, targetId]) => {
+      const voter = room.players.find((p) => p.id === voterId)?.nickname || voterId;
+      const target = room.players.find((p) => p.id === targetId)?.nickname || targetId;
+      return `${voter} vote ${target}.`;
+    });
+
+  return { nightEvents, voteEvents };
+}
+
+function recomputeLiveVoteCounts(room: RoomData) {
+  const vs = room.gameState?.votingState;
+  if (!vs) return;
+
+  const counts: Record<string, number> = {};
+  Object.entries(vs.votes).forEach(([voterId, targetId]) => {
+    if (targetId === 'ABSTAIN') return;
+    const voter = room.players.find((p) => p.id === voterId);
+    const target = room.players.find((p) => p.id === targetId);
+    if (!voter || !target || !voter.isAlive || !target.isAlive) return;
+    const weight = voter.role === 'MAYOR' ? 2 : 1;
+    counts[targetId] = (counts[targetId] || 0) + weight;
+  });
+  vs.voteCounts = counts;
+}
+
+function resetGameWithSamePlayers(room: RoomData) {
+  clearRoomTimers(room);
+  room.hostTransferRequest = undefined;
+  room.players.forEach((p) => {
+    p.isAlive = true;
+    p.role = undefined;
+    p.deathReason = undefined;
+    p.deathRound = undefined;
+    p.deathPhase = undefined;
+    p.protectedCount = 0;
+    p.potionSaved = false;
+    p.isSilenced = false;
+    p.silencedUntilRound = undefined;
+  });
+  room.status = 'WAITING';
+  room.gameState = undefined;
+  room.voiceStates = {};
+  broadcastRoom(room.id, 'ROOM_STATE');
+}
+
+function resumePausedRoom(room: RoomData) {
+  const gs = room.gameState;
+  if (!gs || !gs.isPaused) return;
+
+  const remaining = Math.max(
+    0,
+    gs.pausedRemainingMs ?? Math.max(0, gs.phaseEndsAt - (gs.pausedAt || Date.now())),
+  );
+
+  gs.isPaused = false;
+  gs.pausedByPlayerId = undefined;
+  gs.pausedByPlayerName = undefined;
+  gs.pausedAt = undefined;
+  gs.pausedRemainingMs = undefined;
+  gs.pauseSummary = undefined;
+  gs.phaseEndsAt = Date.now() + remaining;
+
+  const phase = gs.currentPhase;
+
+  if (phase === 'ROLE_REVEAL') {
+    scheduleRoomTimeout(room, () => {
+      if (room.gameState?.currentPhase === 'ROLE_REVEAL') startNightPhase(room);
+    }, remaining);
+  } else if (phase === 'NIGHT') {
+    const step = gs.nightState?.currentStep;
+    if (step) {
+      scheduleRoomTimeout(room, () => {
+        if (room.gameState?.currentPhase === 'NIGHT' && room.gameState.nightState?.currentStep === step) {
+          handleNightStepTimeout(room, step);
+        }
+      }, remaining);
+    }
+  } else if (phase === 'DAY_ANNOUNCEMENT') {
+    scheduleRoomTimeout(room, () => startDayDiscussion(room), remaining);
+  } else if (phase === 'DAY_DISCUSSION') {
+    scheduleRoomTimeout(room, () => {
+      if (room.gameState?.currentPhase === 'DAY_DISCUSSION') startVotingPhase(room);
+    }, remaining);
+  } else if (phase === 'VOTING') {
+    scheduleRoomTimeout(room, () => {
+      if (room.gameState?.currentPhase === 'VOTING') resolveVotes(room);
+    }, remaining);
+  } else if (phase === 'DEATH_REBUTTAL') {
+    scheduleRoomTimeout(room, () => finishDeathRebuttal(room), remaining);
+  } else if (phase === 'HUNTER_REVENGE') {
+    scheduleRoomTimeout(room, () => {
+      if (room.gameState?.currentPhase === 'HUNTER_REVENGE' && room.gameState.hunterMustShootPlayerId) {
+        startDeathRebuttal(room, [room.gameState.hunterMustShootPlayerId]);
+      }
+    }, remaining);
+  } else if (phase === 'VOTE_RESOLUTION') {
+    const eliminated = gs.lastDayEliminated;
+    const target = eliminated?.playerId ? room.players.find((p) => p.id === eliminated.playerId) : undefined;
+    if (target?.role === 'HUNTER') {
+      scheduleRoomTimeout(room, () => triggerHunterRevenge(room, target.id), remaining);
+    } else {
+      scheduleRoomTimeout(room, () => {
+        if (!room.gameState || room.gameState.currentPhase !== 'VOTE_RESOLUTION') return;
+        room.gameState.roundNumber += 1;
+        startNightPhase(room);
+      }, remaining);
+    }
+  }
+
+  broadcastRoom(room.id, 'ROOM_STATE');
+}
+
 // WEBSOCKET SIGNALING & PROTOCOL HUB
 // ----------------------------------------------------------------------------
 
@@ -2171,7 +2341,7 @@ wss.on('connection', (ws: WebSocket, req) => {
         case 'ACTION_SUBMIT': {
           if (!roomId || !playerId) return;
           const room = rooms.get(roomId);
-          if (!room || !room.gameState) return;
+          if (!room || !room.gameState || room.gameState.isPaused) return;
 
           const action: GameAction = payload;
           if (room.gameState.currentPhase === 'HUNTER_REVENGE') {
@@ -2185,17 +2355,61 @@ wss.on('connection', (ws: WebSocket, req) => {
         case 'VOTE_SUBMIT': {
           if (!roomId || !playerId) return;
           const room = rooms.get(roomId);
-          if (!room || !room.gameState || room.gameState.currentPhase !== 'VOTING') return;
+          if (!room || !room.gameState || room.gameState.currentPhase !== 'VOTING' || room.gameState.isPaused) return;
 
           const player = room.players.find((p) => p.id === playerId);
           if (!player || !player.isAlive) return;
 
           const targetPlayerId = payload?.targetPlayerId;
           const vs = room.gameState.votingState;
-          if (vs && !vs.isLocked && targetPlayerId) {
+          if (vs && !vs.isLocked && (targetPlayerId || targetPlayerId === 'ABSTAIN')) {
             vs.votes[player.id] = targetPlayerId;
+            recomputeLiveVoteCounts(room);
+            broadcastRoom(roomId, 'VOTE_UPDATED');
             broadcastRoom(roomId, 'ROOM_STATE');
           }
+          break;
+        }
+
+        case 'GAME_PAUSE_TOGGLE': {
+          if (!roomId || !playerId) return;
+          const room = rooms.get(roomId);
+          if (!room?.gameState) return;
+          const player = room.players.find((p) => p.id === playerId);
+          if (!player) return;
+
+          const wantsPaused = payload?.paused !== false;
+
+          if (wantsPaused && !room.gameState.isPaused) {
+            const now = Date.now();
+            room.gameState.isPaused = true;
+            room.gameState.pausedByPlayerId = player.id;
+            room.gameState.pausedByPlayerName = player.nickname;
+            room.gameState.pausedAt = now;
+            room.gameState.pausedRemainingMs = Math.max(0, room.gameState.phaseEndsAt - now);
+            room.gameState.pauseSummary = buildPauseSummary(room);
+            clearRoomTimers(room);
+            room.gameState.logs.push({
+              id: `log_pause_${Date.now()}`,
+              round: room.gameState.roundNumber,
+              phase: room.gameState.currentPhase,
+              timestamp: now,
+              message: `⏸️ ${player.nickname} đã tạm dừng trận đấu để kiểm tra.`,
+              type: 'WARNING',
+              isPublic: true,
+            });
+            broadcastRoom(roomId, 'ROOM_STATE');
+          } else if (!wantsPaused && room.gameState.isPaused) {
+            resumePausedRoom(room);
+          }
+          break;
+        }
+
+        case 'GAME_RESET_REQUEST': {
+          if (!roomId || !playerId) return;
+          const room = rooms.get(roomId);
+          if (!room || room.hostPlayerId !== playerId) return;
+          resetGameWithSamePlayers(room);
           break;
         }
 
@@ -2209,7 +2423,41 @@ wss.on('connection', (ws: WebSocket, req) => {
 
           const text = payload?.text?.trim();
           const channel = payload?.channel || 'LOBBY';
+          const targetPlayerId = payload?.targetPlayerId;
           if (!text) return;
+
+          if (channel === 'PRIVATE') {
+            const target = room.players.find((p) => p.id === targetPlayerId);
+            if (!target || target.id === player.id) return;
+
+            const privateMsg: ChatMessage = {
+              id: `chat_private_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              senderId: player.id,
+              senderName: player.nickname,
+              avatarSeed: player.avatarSeed,
+              text,
+              timestamp: Date.now(),
+              channel: 'PRIVATE',
+              recipientId: target.id,
+            };
+
+            const roomChats = roomChatMap.get(roomId) || [];
+            roomChats.push(privateMsg);
+            roomChatMap.set(roomId, roomChats.slice(-100));
+            sendToPlayer(player.id, 'NEW_CHAT', { message: privateMsg });
+            sendToPlayer(target.id, 'NEW_CHAT', { message: privateMsg });
+
+            if (target.isBot && target.botType === 'GEMINI') {
+              void maybeBotReplyToPrivateChat(room, target, player, text, (botMessage) => {
+                const chats = roomChatMap.get(roomId) || [];
+                chats.push(botMessage);
+                roomChatMap.set(roomId, chats.slice(-100));
+                sendToPlayer(player.id, 'NEW_CHAT', { message: botMessage });
+                sendToPlayer(target.id, 'NEW_CHAT', { message: botMessage });
+              });
+            }
+            break;
+          }
 
           // Block silenced players from chatting in public Day / Lobby channel during active game
           if (player.isSilenced && (channel === 'DAY_PUBLIC' || channel === 'LOBBY') && room.gameState?.currentPhase !== 'LOBBY') {
@@ -2688,7 +2936,7 @@ app.post('/api/livekit/token', async (req: Request, res: Response) => {
 });
 // 1. Create Room
 app.post('/api/room/create', (req: Request, res: Response) => {
-  const { nickname, settings } = req.body;
+  const { nickname, settings, avatarUrl } = req.body;
   if (!nickname || nickname.trim().length === 0) {
     return res.status(400).json({ error: 'Vui lòng nhập Biệt danh hợp lệ (1-16 ký tự).' });
   }
@@ -2702,6 +2950,7 @@ app.post('/api/room/create', (req: Request, res: Response) => {
     id: hostPlayerId,
     nickname: nickname.trim().substring(0, 16),
     avatarSeed: hostPlayerId,
+    avatarUrl: typeof avatarUrl === 'string' && avatarUrl.startsWith('data:image/') ? avatarUrl.slice(0, 500000) : undefined,
     isHost: true,
     isAlive: true,
     isReady: true,
@@ -2736,7 +2985,7 @@ app.post('/api/room/create', (req: Request, res: Response) => {
 
 // 2. Join Room
 app.post('/api/room/join', (req: Request, res: Response) => {
-  const { code, nickname } = req.body;
+  const { code, nickname, avatarUrl } = req.body;
   if (!code || !nickname || nickname.trim().length === 0) {
     return res.status(400).json({ error: 'Mã phòng và Biệt danh không được để trống.' });
   }
@@ -2775,6 +3024,7 @@ app.post('/api/room/join', (req: Request, res: Response) => {
     id: newPlayerId,
     nickname: cleanName,
     avatarSeed: newPlayerId,
+    avatarUrl: typeof avatarUrl === 'string' && avatarUrl.startsWith('data:image/') ? avatarUrl.slice(0, 500000) : undefined,
     isHost: false,
     isAlive: true,
     isReady: true,

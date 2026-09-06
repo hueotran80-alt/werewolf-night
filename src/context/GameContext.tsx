@@ -69,16 +69,26 @@ interface GameContextType {
       | 'GHOST_PRIVATE'
       | 'WOLF_PRIVATE'
   ) => void;
+  sendPrivateChat: (text: string, targetPlayerId: string) => void;
+  blockedMicIds: string[];
+  blockedChatIds: string[];
+  toggleBlockedMic: (playerId: string) => void;
+  toggleBlockedChat: (playerId: string) => void;
+  pauseGame: () => void;
+  resumeGame: () => void;
+  resetGame: () => void;
 
   // Actions & Controls
   createRoom: (
     nickname: string,
-    settings?: Partial<RoomSettings>
+    settings?: Partial<RoomSettings>,
+    avatarUrl?: string
   ) => Promise<string>;
 
   joinRoom: (
     roomCode: string,
-    nickname: string
+    nickname: string,
+    avatarUrl?: string
   ) => Promise<boolean>;
 
   leaveRoom: () => void;
@@ -216,6 +226,13 @@ export const GameProvider: React.FC<{
 
   const [error, setError] =
     useState<string | null>(null);
+
+  const [blockedMicIds, setBlockedMicIds] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('werewolf_blocked_mic') || '[]'); } catch { return []; }
+  });
+  const [blockedChatIds, setBlockedChatIds] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('werewolf_blocked_chat') || '[]'); } catch { return []; }
+  });
 
   const [
     seerResultPopup,
@@ -422,6 +439,36 @@ export const GameProvider: React.FC<{
       },
       []
     );
+
+  const applyBlockedMicState = useCallback(() => {
+    const blocked = new Set(blockedMicIds);
+    document
+      .querySelectorAll('audio[data-livekit-participant]')
+      .forEach((element) => {
+        const audio = element as HTMLAudioElement;
+        if (blocked.has(audio.dataset.livekitParticipant || '')) {
+          audio.muted = true;
+          audio.volume = 0;
+        } else if (!isMyDeafened) {
+          audio.muted = false;
+          audio.volume = 1;
+        }
+      });
+  }, [blockedMicIds, isMyDeafened]);
+
+  useEffect(() => {
+    localStorage.setItem('werewolf_blocked_mic', JSON.stringify(blockedMicIds));
+    applyBlockedMicState();
+  }, [blockedMicIds, applyBlockedMicState]);
+
+  useEffect(() => {
+    localStorage.setItem('werewolf_blocked_chat', JSON.stringify(blockedChatIds));
+  }, [blockedChatIds]);
+
+  useEffect(() => {
+    const timer = window.setInterval(applyBlockedMicState, 300);
+    return () => window.clearInterval(timer);
+  }, [applyBlockedMicState]);
 
   /**
    * Lấy token LiveKit từ server.
@@ -1717,7 +1764,8 @@ export const GameProvider: React.FC<{
   const createRoom =
     async (
       pName: string,
-      settings?: Partial<RoomSettings>
+      settings?: Partial<RoomSettings>,
+      avatarUrl?: string
     ): Promise<string> => {
       setNickname(pName);
 
@@ -1734,6 +1782,7 @@ export const GameProvider: React.FC<{
               nickname:
                 pName,
               settings,
+              avatarUrl,
             }),
           }
         );
@@ -1801,7 +1850,8 @@ export const GameProvider: React.FC<{
   const joinRoom =
     async (
       roomCode: string,
-      pName: string
+      pName: string,
+      avatarUrl?: string
     ): Promise<boolean> => {
       setNickname(pName);
 
@@ -1821,6 +1871,7 @@ export const GameProvider: React.FC<{
 
               nickname:
                 pName,
+              avatarUrl,
             }),
           }
         );
@@ -2153,6 +2204,36 @@ export const GameProvider: React.FC<{
     };
 
   // ==========================================================================
+  // PRIVATE CHAT / LOCAL BLOCKS / PAUSE
+  // ==========================================================================
+
+  const sendPrivateChat = (text: string, targetPlayerId: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || !targetPlayerId) return;
+    sendWs('CHAT_MESSAGE', {
+      text: trimmed,
+      channel: 'PRIVATE',
+      targetPlayerId,
+    });
+  };
+
+  const toggleBlockedMic = (targetId: string) => {
+    setBlockedMicIds((prev) =>
+      prev.includes(targetId) ? prev.filter((id) => id !== targetId) : [...prev, targetId]
+    );
+  };
+
+  const toggleBlockedChat = (targetId: string) => {
+    setBlockedChatIds((prev) =>
+      prev.includes(targetId) ? prev.filter((id) => id !== targetId) : [...prev, targetId]
+    );
+  };
+
+  const pauseGame = () => sendWs('GAME_PAUSE_TOGGLE', { paused: true });
+  const resumeGame = () => sendWs('GAME_PAUSE_TOGGLE', { paused: false });
+  const resetGame = () => sendWs('GAME_RESET_REQUEST');
+
+  // ==========================================================================
   // PROVIDER
   // ==========================================================================
 
@@ -2190,6 +2271,14 @@ export const GameProvider: React.FC<{
 
         chatMessages,
         sendChat,
+        sendPrivateChat,
+        blockedMicIds,
+        blockedChatIds,
+        toggleBlockedMic,
+        toggleBlockedChat,
+        pauseGame,
+        resumeGame,
+        resetGame,
 
         // --------------------------------------------------------------
         // Actions

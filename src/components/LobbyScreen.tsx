@@ -35,6 +35,7 @@ interface Props {
   onTransferHost: (playerId: string) => void;
   onLeaveRoom: () => void;
   onSendChat: (text: string, channel: 'LOBBY') => void;
+  onPlayerAvatarClick: (playerId: string) => void;
 }
 
 export const LobbyScreen: React.FC<Props> = ({
@@ -51,6 +52,7 @@ export const LobbyScreen: React.FC<Props> = ({
   onTransferHost,
   onLeaveRoom,
   onSendChat,
+  onPlayerAvatarClick,
 }) => {
   const [copied, setCopied] = useState(false);
   const [showDeckBuilder, setShowDeckBuilder] = useState(false);
@@ -188,9 +190,12 @@ export const LobbyScreen: React.FC<Props> = ({
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div className="relative">
-                        <div className="w-8 h-8 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
-                          {p.nickname.charAt(0).toUpperCase()}
-                        </div>
+                        <button type="button" onClick={() => !isMe && onPlayerAvatarClick(p.id)} className="relative">
+                          <div className="w-8 h-8 rounded-xl overflow-hidden bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+                            {p.avatarUrl ? <img src={p.avatarUrl} alt="" className="w-full h-full object-cover" /> : p.nickname.charAt(0).toUpperCase()}
+                          </div>
+                          <span className={`absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full border border-zinc-950 ${p.socketConnected ? 'bg-emerald-400' : 'bg-rose-500'}`} />
+                        </button>
                         {isSpeaking && (
                           <span className="absolute -inset-0.5 rounded-xl border border-emerald-400 animate-ping opacity-60" />
                         )}
@@ -207,7 +212,7 @@ export const LobbyScreen: React.FC<Props> = ({
                           )}
                         </div>
                         <div className="text-[10px] text-zinc-400 flex items-center gap-1.5">
-                          <span>{isMe ? '👤 Bạn' : p.socketConnected ? '🟢 Online' : '🔴 Mất kết nối'}</span>
+                          <span>{isMe ? '👤 Bạn' : 'Người chơi'}</span>
                           <span>•</span>
                           {isSpeaking ? (
                             <span className="text-emerald-400 font-bold flex items-center gap-0.5">
@@ -225,28 +230,6 @@ export const LobbyScreen: React.FC<Props> = ({
                         </div>
                       </div>
                     </div>
-
-                    {/* Host tools for other players */}
-                    {isHost && !isMe && (
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => onTransferHost(p.id)}
-                          className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-amber-400 transition"
-                          title="Chuyển quyền Quản Trò"
-                        >
-                          <Crown className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onKickPlayer(p.id)}
-                          className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-rose-400 transition"
-                          title="Đuổi khỏi phòng"
-                        >
-                          <UserX className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    )}
                   </div>
                 );
               })}

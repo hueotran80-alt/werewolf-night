@@ -25,6 +25,7 @@ interface Props {
   ) => void;
 
   onOpenMyCard: () => void;
+  onPlayerAvatarClick: (playerId: string) => void;
 }
 
 export const VotingPhaseView: React.FC<Props> = ({
@@ -33,18 +34,19 @@ export const VotingPhaseView: React.FC<Props> = ({
   myRole,
   onSubmitVote,
   onOpenMyCard,
+  onPlayerAvatarClick,
 }) => {
   const [
     selectedTargetId,
     setSelectedTargetId,
   ] = useState<string | null>(null);
 
-  const [
-    hasVoted,
-    setHasVoted,
-  ] = useState(false);
+
 
   const gameState = room.gameState;
+
+  const myVote = gameState?.votingState?.votes?.[myPlayer.id] || null;
+  const effectiveSelectedTargetId = selectedTargetId || myVote;
 
   const votingState =
     gameState?.votingState;
@@ -94,14 +96,9 @@ export const VotingPhaseView: React.FC<Props> = ({
         return;
       }
 
-      const remaining =
-        Math.max(
-          0,
-          Math.ceil(
-            (endsAt - Date.now()) /
-              1000
-          )
-        );
+      const remaining = gameState?.isPaused
+        ? Math.ceil((gameState.pausedRemainingMs || 0) / 1000)
+        : Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
 
       setRemainingSeconds(
         remaining
@@ -133,19 +130,8 @@ export const VotingPhaseView: React.FC<Props> = ({
 
 
   const handleVoteSubmit = () => {
-    if (
-      !selectedTargetId ||
-      !isAlive ||
-      hasVoted
-    ) {
-      return;
-    }
-
-    onSubmitVote(
-      selectedTargetId
-    );
-
-    setHasVoted(true);
+    if (!effectiveSelectedTargetId || !isAlive || isResolution) return;
+    onSubmitVote(effectiveSelectedTargetId);
   };
 
 
@@ -377,6 +363,21 @@ export const VotingPhaseView: React.FC<Props> = ({
         )}
 
 
+      {!isResolution && isAlive && (
+        <button
+          type="button"
+          onClick={() => setSelectedTargetId('ABSTAIN')}
+          className={`w-full p-3 rounded-2xl border text-left transition ${
+            effectiveSelectedTargetId === 'ABSTAIN'
+              ? 'bg-zinc-800 border-amber-500 ring-2 ring-amber-500/30'
+              : 'bg-zinc-950 border-zinc-800 hover:border-zinc-700'
+          }`}
+        >
+          <div className="font-bold text-sm text-zinc-200">⚪ Bỏ phiếu trắng</div>
+          <div className="text-[10px] text-zinc-500 mt-1">Không chọn người nào trong vòng này.</div>
+        </button>
+      )}
+
       {/* ========================================================
           PLAYER LIST
       ======================================================== */}
@@ -386,9 +387,7 @@ export const VotingPhaseView: React.FC<Props> = ({
         {room.players.map(
           (p) => {
 
-            const isSelected =
-              selectedTargetId ===
-              p.id;
+            const isSelected = effectiveSelectedTargetId === p.id;
 
             const isMe =
               p.id ===
@@ -413,7 +412,6 @@ export const VotingPhaseView: React.FC<Props> = ({
                 disabled={
                   isDead ||
                   isMe ||
-                  hasVoted ||
                   isResolution ||
                   !isAlive
                 }
@@ -437,13 +435,16 @@ export const VotingPhaseView: React.FC<Props> = ({
 
                 <div className="flex items-center justify-between w-full">
 
-                  <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-zinc-800 to-zinc-700 flex items-center justify-center font-bold text-xs text-white border border-zinc-600">
-
-                    {p.nickname
-                      .charAt(0)
-                      .toUpperCase()}
-
-                  </div>
+                  <span
+                    role="button"
+                    tabIndex={p.id !== myPlayer.id ? 0 : -1}
+                    onClick={(e) => { e.stopPropagation(); if (p.id !== myPlayer.id) onPlayerAvatarClick(p.id); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && p.id !== myPlayer.id) onPlayerAvatarClick(p.id); }}
+                    className="relative w-8 h-8 rounded-xl overflow-hidden bg-gradient-to-tr from-zinc-800 to-zinc-700 flex items-center justify-center font-bold text-xs text-white border border-zinc-600"
+                  >
+                    {p.avatarUrl ? <img src={p.avatarUrl} alt="" className="w-full h-full object-cover" /> : p.nickname.charAt(0).toUpperCase()}
+                    <span className={`absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full border border-zinc-950 ${p.socketConnected ? 'bg-emerald-400' : 'bg-rose-500'}`} />
+                  </span>
 
 
                   {/* SỐ PHIẾU */}
@@ -478,16 +479,17 @@ export const VotingPhaseView: React.FC<Props> = ({
                   </div>
 
                   <div className="text-[10px] text-zinc-400 mt-0.5">
-
-                    {isDead
-                      ? '💀 Đã chết'
-                      : isMe
-                      ? '👤 Là bạn'
-                      : isVoteLeader
-                      ? '🔥 Đang dẫn đầu phiếu'
-                      : '🎯 Ứng viên'}
-
+                    {isDead ? '💀 Đã chết' : isMe ? '👤 Là bạn' : isVoteLeader ? '🔥 Đang dẫn đầu phiếu' : '🎯 Ứng viên'}
                   </div>
+                  {currentVoteCount > 0 && (
+                    <div className="mt-1 text-[9px] text-rose-300/80 truncate">
+                      {Object.entries(votingState?.votes || {})
+                        .filter(([, targetId]) => targetId === p.id)
+                        .map(([voterId]) => room.players.find((x) => x.id === voterId)?.nickname)
+                        .filter(Boolean)
+                        .join(', ')}
+                    </div>
+                  )}
 
                 </div>
 
@@ -520,14 +522,14 @@ export const VotingPhaseView: React.FC<Props> = ({
 
             {isAlive ? (
 
-              hasVoted ? (
+              effectiveSelectedTargetId ? (
 
                 <span className="text-emerald-400 font-bold flex items-center gap-1.5">
 
                   <Check className="w-4 h-4" />
 
                   Bạn đã bỏ phiếu thành công!
-                  Đang chờ làng chốt kết quả...
+                  Bạn có thể đổi phiếu trước khi hết thời gian.
 
                 </span>
 
@@ -555,13 +557,11 @@ export const VotingPhaseView: React.FC<Props> = ({
 
 
           {isAlive &&
-            !hasVoted && (
+            true && (
 
               <button
                 type="button"
-                disabled={
-                  !selectedTargetId
-                }
+                disabled={!effectiveSelectedTargetId}
                 onClick={
                   handleVoteSubmit
                 }

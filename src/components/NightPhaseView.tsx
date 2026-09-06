@@ -21,6 +21,7 @@ interface Props {
   myRole: RoleId | null;
   onSubmitAction: (action: GameAction) => void;
   onOpenMyCard: () => void;
+  onPlayerAvatarClick: (playerId: string) => void;
 }
 
 const STEP_LABELS: Record<NightStep, string> = {
@@ -43,6 +44,7 @@ export const NightPhaseView: React.FC<Props> = ({
   myRole,
   onSubmitAction,
   onOpenMyCard,
+  onPlayerAvatarClick,
 }) => {
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [secondCupidTargetId, setSecondCupidTargetId] = useState<string | null>(null);
@@ -63,9 +65,11 @@ export const NightPhaseView: React.FC<Props> = ({
   const isWerewolf = roleDef?.team === 'WEREWOLF';
   const isAlphaWolf = myRole === 'ALPHA_WOLF';
 
-  const remainingSeconds = gameState?.phaseEndsAt
-    ? Math.max(0, Math.ceil((gameState.phaseEndsAt - now) / 1000))
-    : 0;
+  const remainingSeconds = gameState?.isPaused
+    ? Math.ceil((gameState.pausedRemainingMs || 0) / 1000)
+    : gameState?.phaseEndsAt
+      ? Math.max(0, Math.ceil((gameState.phaseEndsAt - now) / 1000))
+      : 0;
 
   // Re-arm the local buttons whenever the server moves to another night step.
   React.useEffect(() => {
@@ -254,9 +258,12 @@ export const NightPhaseView: React.FC<Props> = ({
             }`}
           >
             <div className="flex items-center justify-between w-full">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-zinc-800 to-zinc-700 flex items-center justify-center font-bold text-xs text-white border border-zinc-600">
-                {p.nickname.charAt(0).toUpperCase()}
-              </div>
+              <button type="button" onClick={() => p.id !== myPlayer.id && onPlayerAvatarClick(p.id)} className="relative">
+                <div className="w-8 h-8 rounded-xl overflow-hidden bg-gradient-to-tr from-zinc-800 to-zinc-700 flex items-center justify-center font-bold text-xs text-white border border-zinc-600">
+                  {p.avatarUrl ? <img src={p.avatarUrl} alt="" className="w-full h-full object-cover" /> : p.nickname.charAt(0).toUpperCase()}
+                </div>
+                <span className={`absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full border border-zinc-950 ${p.socketConnected ? 'bg-emerald-400' : 'bg-rose-500'}`} />
+              </button>
 
               {isWolfTeammate && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800 font-bold">
