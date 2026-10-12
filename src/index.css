@@ -88,24 +88,38 @@
 }
 
 
-/* Compact landscape layout for the native 3D game on phones. */
-@media (orientation: landscape) and (max-height: 520px) {
-  .game3d-root { position: fixed !important; inset: 0 !important; z-index: 40 !important; width: 100vw !important; height: 100dvh !important; min-height: 0 !important; padding: 0 !important; }
-  .game3d-root .absolute.top-3.left-3.right-3 { top: max(4px, env(safe-area-inset-top)) !important; left: max(6px, env(safe-area-inset-left)) !important; right: max(6px, env(safe-area-inset-right)) !important; gap: 4px !important; }
-  .game3d-root .absolute.top-3.left-3.right-3 button { min-height: 34px; }
-  .game3d-root .absolute.bottom-20.left-4 { left: max(8px, env(safe-area-inset-left)) !important; bottom: max(58px, calc(env(safe-area-inset-bottom) + 52px)) !important; gap: 3px !important; }
-  .game3d-root .absolute.bottom-20.left-4 > div { padding: 4px !important; gap: 3px !important; }
-  .game3d-root .absolute.bottom-20.left-4 button { min-width: 36px; min-height: 36px; }
-  .game3d-root .absolute.bottom-20.left-4 > button { max-width: 130px; padding: 5px 8px !important; font-size: 10px !important; }
-  .game3d-root [class*="bottom-4"][class*="left-1/2"] { bottom: max(4px, env(safe-area-inset-bottom)) !important; gap: 5px !important; }
-  .game3d-root [class*="bottom-4"][class*="left-1/2"] button { min-height: 36px; padding: 7px 10px !important; }
-  .game3d-root [class*="top-14"][class*="left-1/2"] { top: 48px !important; max-width: 76vw !important; }
-  .game3d-root [class*="top-14"][class*="left-1/2"] > div { padding: 5px 9px !important; font-size: 10px !important; }
+/* Mobile-game presentation: immersive landscape, thumb zones, no desktop-sized HUD. */
+@media (orientation: landscape) and (max-height: 600px) {
+  .game3d-root { position: fixed !important; inset: 0 !important; z-index: 40 !important; width: 100vw !important; height: 100dvh !important; min-height: 0 !important; padding: 0 !important; overflow: hidden !important; }
+  /* One slim, horizontally scrollable HUD row. */
+  .game3d-root .absolute.top-3.left-3.right-3 { top: max(4px, env(safe-area-inset-top)) !important; left: max(6px, env(safe-area-inset-left)) !important; right: max(6px, env(safe-area-inset-right)) !important; display: flex !important; justify-content: flex-start !important; gap: 5px !important; overflow-x: auto !important; overflow-y: hidden !important; scrollbar-width: none; }
+  .game3d-root .absolute.top-3.left-3.right-3 > div { flex-shrink: 0 !important; }
+  .game3d-root .absolute.top-3.left-3.right-3 button { min-height: 32px !important; min-width: 32px !important; padding: 5px 8px !important; font-size: 10px !important; }
+  .game3d-root .absolute.top-3.left-3.right-3 svg { width: 15px !important; height: 15px !important; }
+  /* The lobby is a compact management drawer on the right, never under the joystick. */
+  .game3d-root .absolute.bottom-18.left-1\/2, .game3d-root .absolute.bottom-20.left-1\/2 { left: auto !important; right: max(8px, env(safe-area-inset-right)) !important; bottom: max(8px, env(safe-area-inset-bottom)) !important; transform: none !important; width: min(58vw, 680px) !important; max-width: none !important; max-height: 43dvh !important; overflow-y: auto !important; padding: 8px !important; border-radius: 16px !important; gap: 6px !important; }
+  .game3d-root .absolute.bottom-18.left-1\/2 > div, .game3d-root .absolute.bottom-20.left-1\/2 > div { gap: 5px !important; padding-bottom: 5px !important; }
+  .game3d-root .absolute.bottom-18.left-1\/2 span, .game3d-root .absolute.bottom-20.left-1\/2 span { font-size: 10px !important; line-height: 1.25 !important; }
+  .game3d-root .absolute.bottom-18.left-1\/2 button, .game3d-root .absolute.bottom-20.left-1\/2 button { min-height: 34px !important; padding: 6px 8px !important; border-radius: 10px !important; font-size: 10px !important; }
+  .game3d-root .absolute.bottom-18.left-1\/2 .flex, .game3d-root .absolute.bottom-20.left-1\/2 .flex { gap: 4px !important; }
+  /* Keep the left thumb zone free of cards and modal overlays. */
+  .game3d-root .absolute.bottom-20.left-4 { left: max(8px, env(safe-area-inset-left)) !important; bottom: max(8px, env(safe-area-inset-bottom)) !important; gap: 3px !important; z-index: 30 !important; }
+  .game3d-root .absolute.bottom-20.left-4 > div { width: 106px !important; padding: 4px !important; gap: 3px !important; border-radius: 16px !important; }
+  .game3d-root .absolute.bottom-20.left-4 button { width: 30px !important; height: 30px !important; min-width: 30px !important; min-height: 30px !important; border-radius: 9px !important; font-size: 12px !important; }
+  .game3d-root .absolute.bottom-20.left-4 > button { width: 106px !important; min-height: 30px !important; padding: 5px !important; font-size: 9px !important; }
+  /* Remove the PC keyboard tutorial; controls are visible on screen already. */
+  .game3d-root [class*="top-16"][class*="left-1/2"] { display: none !important; }
+  /* Bottom actions sit in the open lane between the joystick and lobby dock. */
+  .game3d-root [class*="bottom-4"][class*="left-1/2"] { left: 50% !important; bottom: max(8px, env(safe-area-inset-bottom)) !important; transform: translateX(-50%) !important; gap: 4px !important; max-width: 34vw !important; flex-wrap: wrap !important; justify-content: center !important; }
+  .game3d-root [class*="bottom-4"][class*="left-1/2"] button { min-height: 32px !important; min-width: 32px !important; padding: 7px !important; border-radius: 11px !important; }
+  .game3d-root [class*="bottom-4"][class*="left-1/2"] button span { display: none !important; }
+  .game3d-root [class*="top-14"][class*="left-1/2"] { top: 42px !important; max-width: 65vw !important; }
+  .game3d-root [class*="top-14"][class*="left-1/2"] > div { padding: 4px 8px !important; font-size: 10px !important; }
   .character-3d-viewer .character-3d-joystick { left: max(8px, env(safe-area-inset-left)) !important; bottom: max(8px, env(safe-area-inset-bottom)) !important; }
   .character-3d-viewer .character-3d-joystick > div { width: 84px !important; height: 84px !important; }
   .character-3d-viewer .character-3d-joystick > div > div.w-12 { width: 38px !important; height: 38px !important; }
   .character-3d-viewer .character-3d-actions { right: max(8px, env(safe-area-inset-right)) !important; bottom: max(8px, env(safe-area-inset-bottom)) !important; gap: 5px !important; }
-  .character-3d-viewer .character-3d-actions button { padding: 7px 9px !important; min-height: 34px; }
+  .character-3d-viewer .character-3d-actions button { padding: 7px 9px !important; min-height: 34px !important; }
   .character-3d-viewer .absolute.top-0.left-0.right-0 { padding: 6px 8px !important; gap: 4px !important; }
   .character-3d-viewer [class*="top-16"][class*="left-4"] { top: 52px !important; left: 8px !important; max-width: min(250px, 42vw) !important; padding: 8px !important; }
 }
