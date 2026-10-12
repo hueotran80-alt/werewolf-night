@@ -8,3 +8,6 @@ coverage/
 !.env.example
 .idea/
 android/.idea/
+
+__pycache__/
+*.py[cod]

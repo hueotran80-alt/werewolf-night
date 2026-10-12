@@ -8,6 +8,7 @@ import {
   Sliders,
   Sparkles,
   Shuffle,
+  Flame,
 } from 'lucide-react';
 
 import { audioService } from '../services/audioService';
@@ -20,6 +21,8 @@ interface Props {
   onOpenDeckLibrary: () => void;
   onOpenGuide: () => void;
   onOpenSettings: () => void;
+  viewMode: '2D' | '3D';
+  onToggleViewMode: () => void;
 }
 
 export const HomeScreen: React.FC<Props> = ({
@@ -30,6 +33,8 @@ export const HomeScreen: React.FC<Props> = ({
   onOpenDeckLibrary,
   onOpenGuide,
   onOpenSettings,
+  viewMode,
+  onToggleViewMode,
 }) => {
   const [nameInput, setNameInput] = useState(nickname || '');
   const [roomCodeInput, setRoomCodeInput] = useState('');
@@ -166,13 +171,40 @@ export const HomeScreen: React.FC<Props> = ({
 
         </div>
 
-        <button
-          onClick={onOpenSettings}
-          className="p-2.5 rounded-2xl bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 transition"
-          title="Cài đặt"
-        >
-          <Sliders className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* NÚT CHUYỂN ĐỔI CHẾ ĐỘ CHƠI CHÍNH THỨC (2D THẺ BÀI <-> 3D KHÔNG GIAN) */}
+          <button
+            type="button"
+            onClick={onToggleViewMode}
+            className={`px-3 py-2 rounded-2xl text-xs font-bold flex items-center gap-2 transition shadow-lg cursor-pointer active:scale-95 border ${
+              viewMode === '2D'
+                ? 'bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white border-violet-400/40 shadow-violet-950/40'
+                : 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white border-amber-400/40 shadow-amber-950/40'
+            }`}
+            title={viewMode === '2D' ? 'Bấm để chọn chơi Chế Độ 3D Không Gian Thực' : 'Bấm để chọn chơi Chế Độ 2D Thẻ Bài Truyền Thống'}
+          >
+            {viewMode === '2D' ? (
+              <>
+                <Sparkles className="w-4 h-4 text-amber-300 animate-spin" />
+                <span>Chế Độ: 2D Thẻ Bài (Đổi 3D)</span>
+              </>
+            ) : (
+              <>
+                <Flame className="w-4 h-4 text-amber-300 animate-pulse" />
+                <span>Chế Độ: 3D Không Gian Thực</span>
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="p-2.5 rounded-2xl bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 transition cursor-pointer"
+            title="Cài đặt"
+          >
+            <Sliders className="w-4 h-4" />
+          </button>
+        </div>
 
       </header>
 
@@ -357,12 +389,13 @@ export const HomeScreen: React.FC<Props> = ({
         {/* ========================================================
             FEATURE CARDS
         ======================================================== */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-2xl pt-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 w-full max-w-5xl pt-4">
 
           {/* DECK */}
           <button
+            type="button"
             onClick={onOpenDeckLibrary}
-            className="p-4 rounded-3xl bg-zinc-950/60 hover:bg-zinc-900 border border-zinc-800/80 hover:border-purple-500/50 text-left space-y-2 transition-all group"
+            className="p-4 rounded-3xl bg-zinc-950/60 hover:bg-zinc-900 border border-zinc-800/80 hover:border-purple-500/50 text-left space-y-2 transition-all group cursor-pointer"
           >
 
             <div className="w-10 h-10 rounded-2xl bg-purple-500/10 text-purple-400 border border-purple-500/30 flex items-center justify-center group-hover:scale-110 transition">
@@ -385,8 +418,9 @@ export const HomeScreen: React.FC<Props> = ({
 
           {/* GUIDE */}
           <button
+            type="button"
             onClick={onOpenGuide}
-            className="p-4 rounded-3xl bg-zinc-950/60 hover:bg-zinc-900 border border-zinc-800/80 hover:border-amber-500/50 text-left space-y-2 transition-all group"
+            className="p-4 rounded-3xl bg-zinc-950/60 hover:bg-zinc-900 border border-zinc-800/80 hover:border-amber-500/50 text-left space-y-2 transition-all group cursor-pointer"
           >
 
             <div className="w-10 h-10 rounded-2xl bg-amber-500/10 text-amber-400 border border-amber-500/30 flex items-center justify-center group-hover:scale-110 transition">
@@ -407,7 +441,7 @@ export const HomeScreen: React.FC<Props> = ({
 
           </button>
 
-        </div>
+          </div>
 
       </main>
 

@@ -16,6 +16,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { HostTransferModal } from './components/HostTransferModal';
 import { PlayerInteractionModal } from './components/PlayerInteractionModal';
 import { PauseOverlay } from './components/PauseOverlay';
+import { Game3DRoomView } from './components/Game3DRoomView';
 import { AlertCircle, Eye, Check, X, Sparkles, RefreshCw } from 'lucide-react';
 
 interface ErrorBoundaryProps {
@@ -121,13 +122,20 @@ function GameRoot() {
   const [showSettings, setShowSettings] = useState(false);
   const [showStartDeal, setShowStartDeal] = useState(false);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
+
+  // View Mode: '2D' or '3D' (synced with localStorage)
+  const [viewMode, setViewMode] = useState<'2D' | '3D'>(() => {
+    const saved = localStorage.getItem('werewolf_view_mode');
+    return saved === '3D' ? '3D' : '2D';
+  });
   useEffect(() => {
-  if (currentRoom && gameState?.currentPhase === 'ROLE_REVEAL') {
-    setShowStartDeal(true);
-  } else {
-    setShowStartDeal(false);
-  }
-}, [currentRoom?.id, gameState?.currentPhase]);
+    // Only activate 2D deal animation screen when in 2D mode
+    if (viewMode === '2D' && currentRoom && gameState?.currentPhase === 'ROLE_REVEAL') {
+      setShowStartDeal(true);
+    } else {
+      setShowStartDeal(false);
+    }
+  }, [currentRoom?.id, gameState?.currentPhase, viewMode]);
 
   // If not currently in a room, render Home Screen
   if (!currentRoom) {
@@ -141,6 +149,12 @@ function GameRoot() {
           onOpenDeckLibrary={() => setShowDeckLibrary(true)}
           onOpenGuide={() => setShowGuide(true)}
           onOpenSettings={() => setShowSettings(true)}
+          viewMode={viewMode}
+          onToggleViewMode={() => {
+            const nextMode = viewMode === '2D' ? '3D' : '2D';
+            setViewMode(nextMode);
+            localStorage.setItem('werewolf_view_mode', nextMode);
+          }}
         />
 
         <CardLibraryModal
@@ -152,7 +166,6 @@ function GameRoot() {
           isOpen={showGuide}
           onClose={() => setShowGuide(false)}
         />
-
 
         <SettingsModal
           isOpen={showSettings}
@@ -193,6 +206,34 @@ function GameRoot() {
           <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-400">
             Phòng: {currentRoom.code}
           </span>
+          <button
+            onClick={() => {
+              const nextMode = viewMode === '2D' ? '3D' : '2D';
+              setViewMode(nextMode);
+              localStorage.setItem('werewolf_view_mode', nextMode);
+            }}
+            className={`px-3 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md border ${
+              viewMode === '2D'
+                ? 'bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white border-violet-400/40 shadow-violet-950/50'
+                : 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white border-amber-400/40 shadow-amber-950/50'
+            }`}
+            title={
+              viewMode === '2D'
+                ? 'Chuyển sang phòng 3D không gian tương tác'
+                : 'Chuyển về giao diện 2D thẻ bài truyền thống'
+            }
+          >
+            {viewMode === '2D' ? (
+              <>
+                <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-spin" />
+                <span>🎮 Chuyển Sang 3D</span>
+              </>
+            ) : (
+              <>
+                <span>📜 Chuyển Về 2D</span>
+              </>
+            )}
+          </button>
         </div>
 
         <div className="flex items-center gap-2">
@@ -221,94 +262,128 @@ function GameRoot() {
 
       {/* Dynamic Game Phase Screen */}
       <main className="relative z-10 w-full max-w-6xl mx-auto px-2 sm:px-4 py-3 sm:py-4 flex-1 flex flex-col">
-        <VoiceCallBar />
+        {viewMode !== '3D' && <VoiceCallBar />}
 
-        {currentPhase === 'LOBBY' && myPlayer && (
-          <LobbyScreen
-            room={currentRoom}
-            myPlayer={myPlayer}
-            isHost={isHost}
-            chatMessages={visibleChatMessages}
-            onStartGame={startGame}
-            onUpdateDeck={updateDeck}
-            onUpdateSettings={updateSettings}
-            onAddBot={addBotPlayer}
-            onAddSmartBot={addSmartBotPlayer}
-            onKickPlayer={kickPlayer}
-            onTransferHost={transferHost}
-            onLeaveRoom={leaveRoom}
-            onSendChat={(text) => sendChat(text, 'LOBBY')}
-            onPlayerAvatarClick={setSelectedPlayerId}
-          />
-        )}
+        {viewMode === '3D' ? (
+          myPlayer ? (
+            <Game3DRoomView
+              room={currentRoom}
+              myPlayer={myPlayer}
+              myRole={myRole}
+              onSubmitAction={submitAction}
+              onSubmitVote={submitVote}
+              onSendChat={(text, channel) => sendChat(text, channel)}
+              chatMessages={visibleChatMessages}
+              isHost={isHost}
+              onStartGame={startGame}
+              onLeaveRoom={leaveRoom}
+              onAddBot={addBotPlayer}
+              onAddSmartBot={addSmartBotPlayer}
+              onUpdateDeck={updateDeck}
+              onKickPlayer={kickPlayer}
+              onSwitchTo2D={() => {
+                setViewMode('2D');
+                localStorage.setItem('werewolf_view_mode', '2D');
+              }}
+            />
+          ) : (
+            <div className="flex-1 flex items-center justify-center p-8 text-center">
+              <div className="space-y-3">
+                <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                <p className="text-sm font-serif text-amber-200">Đang khởi tạo không gian làng 3D...</p>
+              </div>
+            </div>
+          )
+        ) : (
+          <>
+            {currentPhase === 'LOBBY' && myPlayer && (
+              <LobbyScreen
+                room={currentRoom}
+                myPlayer={myPlayer}
+                isHost={isHost}
+                chatMessages={visibleChatMessages}
+                onStartGame={startGame}
+                onUpdateDeck={updateDeck}
+                onUpdateSettings={updateSettings}
+                onAddBot={addBotPlayer}
+                onAddSmartBot={addSmartBotPlayer}
+                onKickPlayer={kickPlayer}
+                onTransferHost={transferHost}
+                onLeaveRoom={leaveRoom}
+                onSendChat={(text) => sendChat(text, 'LOBBY')}
+                onPlayerAvatarClick={setSelectedPlayerId}
+              />
+            )}
 
-        {currentPhase === 'ROLE_REVEAL' && myRole && (
-  <>
-    {showStartDeal ? (
-      <GameStartDealScreen
-        room={currentRoom}
-        onFinished={() => {
-          setShowStartDeal(false);
-        }}
-      />
-    ) : (
-      <RoleRevealScreen
-        room={currentRoom}
-        roleId={myRole}
-        onUnderstood={() => {}}
-      />
-    )}
-  </>
-)}
+            {currentPhase === 'ROLE_REVEAL' && myRole && (
+              <>
+                {showStartDeal ? (
+                  <GameStartDealScreen
+                    room={currentRoom}
+                    onFinished={() => {
+                      setShowStartDeal(false);
+                    }}
+                  />
+                ) : (
+                  <RoleRevealScreen
+                    room={currentRoom}
+                    roleId={myRole}
+                    onUnderstood={() => {}}
+                  />
+                )}
+              </>
+            )}
 
-        {(currentPhase === 'NIGHT' || currentPhase === 'HUNTER_REVENGE') && myPlayer && (
-          <NightPhaseView
-            room={currentRoom}
-            myPlayer={myPlayer}
-            myRole={myRole}
-            onSubmitAction={submitAction}
-            onOpenMyCard={() => setShowMyCard(true)}
-            onPlayerAvatarClick={setSelectedPlayerId}
-          />
-        )}
+            {(currentPhase === 'NIGHT' || currentPhase === 'HUNTER_REVENGE') && myPlayer && (
+              <NightPhaseView
+                room={currentRoom}
+                myPlayer={myPlayer}
+                myRole={myRole}
+                onSubmitAction={submitAction}
+                onOpenMyCard={() => setShowMyCard(true)}
+                onPlayerAvatarClick={setSelectedPlayerId}
+              />
+            )}
 
-        {(currentPhase === 'DAY_ANNOUNCEMENT' || currentPhase === 'DAY_DISCUSSION' || currentPhase === 'DEATH_REBUTTAL') && myPlayer && (
-          <DayPhaseView
-            room={currentRoom}
-            myPlayer={myPlayer}
-            myRole={myRole}
-            chatMessages={visibleChatMessages}
-            onSendChat={(text, channel) => sendChat(text, channel)}
-            onOpenMyCard={() => setShowMyCard(true)}
-            onPlayerAvatarClick={setSelectedPlayerId}
-          />
-        )}
+            {(currentPhase === 'DAY_ANNOUNCEMENT' || currentPhase === 'DAY_DISCUSSION' || currentPhase === 'DEATH_REBUTTAL') && myPlayer && (
+              <DayPhaseView
+                room={currentRoom}
+                myPlayer={myPlayer}
+                myRole={myRole}
+                chatMessages={visibleChatMessages}
+                onSendChat={(text, channel) => sendChat(text, channel)}
+                onOpenMyCard={() => setShowMyCard(true)}
+                onPlayerAvatarClick={setSelectedPlayerId}
+              />
+            )}
 
-        {(currentPhase === 'VOTING' || currentPhase === 'VOTE_RESOLUTION') && myPlayer && (
-          <VotingPhaseView
-            room={currentRoom}
-            myPlayer={myPlayer}
-            myRole={myRole}
-            onSubmitVote={submitVote}
-            onOpenMyCard={() => setShowMyCard(true)}
-            onPlayerAvatarClick={setSelectedPlayerId}
-          />
-        )}
+            {(currentPhase === 'VOTING' || currentPhase === 'VOTE_RESOLUTION') && myPlayer && (
+              <VotingPhaseView
+                room={currentRoom}
+                myPlayer={myPlayer}
+                myRole={myRole}
+                onSubmitVote={submitVote}
+                onOpenMyCard={() => setShowMyCard(true)}
+                onPlayerAvatarClick={setSelectedPlayerId}
+              />
+            )}
 
-        {currentPhase === 'GAME_OVER' && myPlayer && (
-          <VictoryScreen
-            room={currentRoom}
-            myPlayer={myPlayer}
-            isHost={isHost}
-            onRestart={restartWithSamePlayers}
-            onReturnToLobby={returnToLobby}
-            onGoHome={leaveRoom}
-          />
+            {currentPhase === 'GAME_OVER' && myPlayer && (
+              <VictoryScreen
+                room={currentRoom}
+                myPlayer={myPlayer}
+                isHost={isHost}
+                onRestart={restartWithSamePlayers}
+                onReturnToLobby={returnToLobby}
+                onGoHome={leaveRoom}
+              />
+            )}
+          </>
         )}
       </main>
 
       {/* Floating Modals */}
-      {selectedPlayerId && currentRoom && myPlayer && selectedPlayerId !== myPlayer.id && (() => {
+      {viewMode !== '3D' && selectedPlayerId && currentRoom && myPlayer && selectedPlayerId !== myPlayer.id && (() => {
         const selected = currentRoom.players.find((p) => p.id === selectedPlayerId);
         if (!selected) return null;
         return (
@@ -339,13 +414,15 @@ function GameRoot() {
         />
       )}
 
-      <MyCardModal
-        isOpen={showMyCard}
-        onClose={() => setShowMyCard(false)}
-        roleId={myRole}
-        isAlive={myPlayer?.isAlive ?? true}
-        deathReason={myPlayer?.deathReason}
-      />
+      {viewMode !== '3D' && (
+        <MyCardModal
+          isOpen={showMyCard}
+          onClose={() => setShowMyCard(false)}
+          roleId={myRole}
+          isAlive={myPlayer?.isAlive ?? true}
+          deathReason={myPlayer?.deathReason}
+        />
+      )}
 
       <CardLibraryModal
         isOpen={showDeckLibrary}

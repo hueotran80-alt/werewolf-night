@@ -8,7 +8,9 @@ import {
   ShieldAlert,
   MicOff,
   VolumeX,
+  Sparkles,
 } from 'lucide-react';
+import { DayPhase3DViewer } from './DayPhase3DViewer';
 
 interface Props {
   room: RoomData;
@@ -32,6 +34,7 @@ export const DayPhaseView: React.FC<Props> = ({
   onPlayerAvatarClick,
 }) => {
   const [inputText, setInputText] = useState('');
+  const [show3DViewer, setShow3DViewer] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const { isSilenced } = useGame();
 
@@ -218,6 +221,16 @@ export const DayPhaseView: React.FC<Props> = ({
           >
             ⏳ {remainingSeconds}s
           </div>
+
+          <button
+            type="button"
+            onClick={() => setShow3DViewer(true)}
+            className="px-3.5 py-1.5 rounded-2xl bg-amber-950/60 hover:bg-amber-900 border border-amber-600/50 text-xs font-bold text-amber-300 transition flex items-center gap-1.5 shadow-md shadow-amber-950/40"
+            title="Xem hoạt cảnh làng 3D và chia bài"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>☀️ Làng 3D</span>
+          </button>
 
           <button
             type="button"
@@ -524,10 +537,21 @@ export const DayPhaseView: React.FC<Props> = ({
             </button>
 
           </form>
-
         )}
 
       </div>
+
+      {/* 3D Village Modal */}
+      {show3DViewer && (
+        <div className="fixed inset-0 z-50 bg-black/95 flex flex-col animate-fade-in">
+          <DayPhase3DViewer
+            playerRole={myPlayer.role || 'VILLAGER'}
+            playerName={myPlayer.nickname}
+            onClose={() => setShow3DViewer(false)}
+            className="w-full h-full"
+          />
+        </div>
+      )}
 
     </div>
   );
