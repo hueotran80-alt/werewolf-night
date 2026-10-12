@@ -86,3 +86,26 @@
   pointer-events: none;
   z-index: 0;
 }
+
+
+/* Compact landscape layout for the native 3D game on phones. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .game3d-root { position: fixed !important; inset: 0 !important; z-index: 40 !important; width: 100vw !important; height: 100dvh !important; min-height: 0 !important; padding: 0 !important; }
+  .game3d-root .absolute.top-3.left-3.right-3 { top: max(4px, env(safe-area-inset-top)) !important; left: max(6px, env(safe-area-inset-left)) !important; right: max(6px, env(safe-area-inset-right)) !important; gap: 4px !important; }
+  .game3d-root .absolute.top-3.left-3.right-3 button { min-height: 34px; }
+  .game3d-root .absolute.bottom-20.left-4 { left: max(8px, env(safe-area-inset-left)) !important; bottom: max(58px, calc(env(safe-area-inset-bottom) + 52px)) !important; gap: 3px !important; }
+  .game3d-root .absolute.bottom-20.left-4 > div { padding: 4px !important; gap: 3px !important; }
+  .game3d-root .absolute.bottom-20.left-4 button { min-width: 36px; min-height: 36px; }
+  .game3d-root .absolute.bottom-20.left-4 > button { max-width: 130px; padding: 5px 8px !important; font-size: 10px !important; }
+  .game3d-root [class*="bottom-4"][class*="left-1/2"] { bottom: max(4px, env(safe-area-inset-bottom)) !important; gap: 5px !important; }
+  .game3d-root [class*="bottom-4"][class*="left-1/2"] button { min-height: 36px; padding: 7px 10px !important; }
+  .game3d-root [class*="top-14"][class*="left-1/2"] { top: 48px !important; max-width: 76vw !important; }
+  .game3d-root [class*="top-14"][class*="left-1/2"] > div { padding: 5px 9px !important; font-size: 10px !important; }
+  .character-3d-viewer .character-3d-joystick { left: max(8px, env(safe-area-inset-left)) !important; bottom: max(8px, env(safe-area-inset-bottom)) !important; }
+  .character-3d-viewer .character-3d-joystick > div { width: 84px !important; height: 84px !important; }
+  .character-3d-viewer .character-3d-joystick > div > div.w-12 { width: 38px !important; height: 38px !important; }
+  .character-3d-viewer .character-3d-actions { right: max(8px, env(safe-area-inset-right)) !important; bottom: max(8px, env(safe-area-inset-bottom)) !important; gap: 5px !important; }
+  .character-3d-viewer .character-3d-actions button { padding: 7px 9px !important; min-height: 34px; }
+  .character-3d-viewer .absolute.top-0.left-0.right-0 { padding: 6px 8px !important; gap: 4px !important; }
+  .character-3d-viewer [class*="top-16"][class*="left-4"] { top: 52px !important; left: 8px !important; max-width: min(250px, 42vw) !important; padding: 8px !important; }
+}

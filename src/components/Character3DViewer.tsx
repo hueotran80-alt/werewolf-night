@@ -1050,7 +1050,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
   const currentModelData = availableModels.find((m) => m.url === selectedModelUrl) || availableModels[0];
 
   return (
-    <div className={`relative w-full h-full min-h-[500px] overflow-hidden bg-[#070b14] select-none text-zinc-100 ${className}`}>
+    <div className={`character-3d-viewer relative w-full h-full min-h-0 overflow-hidden bg-[#070b14] select-none text-zinc-100 ${className}`}>
       {/* 3D Canvas Container */}
       <div ref={mountRef} className="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing" />
 
@@ -1222,7 +1222,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
 
       {/* Mobile Virtual Joystick (Bottom Left) */}
       {showControls && (
-        <div className="absolute bottom-6 left-6 z-10 pointer-events-auto">
+        <div className="character-3d-joystick absolute bottom-6 left-6 z-10 pointer-events-auto">
           <div
             ref={joystickContainerRef}
             onPointerDown={handleJoystickPointerDown}
@@ -1261,7 +1261,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
 
       {/* Action Buttons & Emotes (Bottom Right) */}
       {showControls && (
-        <div className="absolute bottom-6 right-6 z-10 pointer-events-auto flex flex-col items-end gap-2.5">
+        <div className="character-3d-actions absolute bottom-6 right-6 z-10 pointer-events-auto flex flex-col items-end gap-2.5">
           {/* Emotes Bar */}
           <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-zinc-950/80 backdrop-blur-md border border-zinc-800/90 shadow-xl">
             {Boolean(actionsRef.current['agree']) && (

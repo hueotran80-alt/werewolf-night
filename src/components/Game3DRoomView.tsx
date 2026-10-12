@@ -3,6 +3,8 @@
 // ============================================================================
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { ScreenOrientation } from '@capacitor/screen-orientation';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -35,6 +37,8 @@ import {
   ChevronDown,
   ChevronUp,
   Crosshair,
+  ZoomIn,
+  ZoomOut,
   Crown,
   Heart,
   HelpCircle,
@@ -266,6 +270,13 @@ export const Game3DRoomView: React.FC<Game3DRoomViewProps> = (props) => {
   const [soundMuted, setSoundMuted] = useState(soundManager.isMuted);
   const [showDeckBuilder, setShowDeckBuilder] = useState(false);
   const [isFillingBots, setIsFillingBots] = useState(false);
+
+  // Lock the native 3D game to landscape and restore orientation when leaving it.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    void ScreenOrientation.lock({ orientation: 'landscape' }).catch(() => {});
+    return () => { void ScreenOrientation.unlock().catch(() => {}); };
+  }, []);
 
   // Helper refs for hotkeys and interactions
   const handleInspectCardToggleRef = useRef<() => void>(() => {});
@@ -656,6 +667,23 @@ export const Game3DRoomView: React.FC<Game3DRoomViewProps> = (props) => {
   );
 
   // ==========================================================================
+  // Touch-friendly camera zoom controls for mobile devices.
+  const handleCameraZoom = useCallback((direction: 'in' | 'out' | 'reset') => {
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls) return;
+    if (direction === 'reset') {
+      targetCamPos.current.set(0, 6.2, seatRadius + 4.5);
+      targetLookAt.current.set(0, 0.5, 0);
+      controls.target.set(0, 0.5, 0);
+    } else {
+      const offset = camera.position.clone().sub(controls.target);
+      offset.multiplyScalar(direction === 'in' ? 0.86 : 1.16);
+      targetCamPos.current.copy(controls.target).add(offset);
+    }
+    controls.update();
+  }, [seatRadius]);
+
   // 3D PARABOLIC CARD DEALING & INSPECT ACTIONS
   // ==========================================================================
 
@@ -2210,7 +2238,7 @@ export const Game3DRoomView: React.FC<Game3DRoomViewProps> = (props) => {
 
   return (
     <div
-      className={`relative w-full h-full min-h-[550px] overflow-hidden bg-slate-950 font-sans select-none ${
+      className={`game3d-root relative w-full h-full min-h-0 overflow-hidden bg-slate-950 font-sans select-none ${
         isFullscreen ? 'fixed inset-0 z-50' : ''
       } ${props.className || ''}`}
     >
@@ -2321,6 +2349,14 @@ export const Game3DRoomView: React.FC<Game3DRoomViewProps> = (props) => {
             </button>
           </div>
 
+          {cameraMode === 'overview' && (
+            <div className="flex items-center gap-1 rounded-xl bg-zinc-900/80 p-0.5 backdrop-blur-md border border-zinc-800 shadow-xl" aria-label="Điều khiển camera">
+              <button type="button" onClick={() => handleCameraZoom('out')} className="min-w-9 min-h-9 p-2 rounded-lg text-zinc-200 hover:bg-zinc-700 active:bg-zinc-600 touch-manipulation" title="Thu nhỏ góc nhìn" aria-label="Thu nhỏ góc nhìn"><ZoomOut className="w-4 h-4" /></button>
+              <button type="button" onClick={() => handleCameraZoom('in')} className="min-w-9 min-h-9 p-2 rounded-lg text-zinc-200 hover:bg-zinc-700 active:bg-zinc-600 touch-manipulation" title="Phóng to góc nhìn" aria-label="Phóng to góc nhìn"><ZoomIn className="w-4 h-4" /></button>
+              <button type="button" onClick={() => handleCameraZoom('reset')} className="min-w-9 min-h-9 p-2 rounded-lg text-amber-300 hover:bg-zinc-700 active:bg-zinc-600 touch-manipulation" title="Đặt lại góc nhìn" aria-label="Đặt lại góc nhìn"><Crosshair className="w-4 h-4" /></button>
+            </div>
+          )}
+
           {/* Sound Toggle */}
           <button
             onClick={() => {
@@ -2376,17 +2412,9 @@ export const Game3DRoomView: React.FC<Game3DRoomViewProps> = (props) => {
       {/* ===================================================================== */}
       {/* 3D PHASE GUIDANCE & USABILITY HUD BANNER */}
       {/* ===================================================================== */}
+      {currentPhase !== 'LOBBY' && (
       <div className="absolute top-14 left-1/2 -translate-x-1/2 z-20 pointer-events-none max-w-[94vw] animate-fade-in">
         <div className="px-4 py-2 rounded-2xl bg-zinc-950/92 backdrop-blur-xl border border-zinc-700/80 shadow-2xl flex items-center gap-2.5 text-xs font-semibold pointer-events-auto">
-          {currentPhase === 'LOBBY' && (
-            <>
-              <Compass className="w-4 h-4 text-amber-400 animate-spin" />
-              <span className="text-amber-200">
-                Sảnh Chờ: Dùng phím W / A / S / D hoặc Mũi tên để chạy tự do • Giữ Shift chạy nhanh • Nhấp vào nhân vật để tương tác
-              </span>
-            </>
-          )}
-
           {currentPhase === 'ROLE_REVEAL' && (
             <>
               <Sparkles className="w-4 h-4 text-amber-400 animate-bounce" />
@@ -2460,6 +2488,7 @@ export const Game3DRoomView: React.FC<Game3DRoomViewProps> = (props) => {
           )}
         </div>
       </div>
+      )}
 
       {/* ===================================================================== */}
       {/* TARGET ACTION CARD (WHEN A PLAYER IS CLICKED IN 3D) */}
@@ -3075,7 +3104,8 @@ export const Game3DRoomView: React.FC<Game3DRoomViewProps> = (props) => {
               onPointerDown={(e) => { e.preventDefault(); touchInputRef.current.up = true; }}
               onPointerUp={(e) => { e.preventDefault(); touchInputRef.current.up = false; }}
               onPointerLeave={(e) => { e.preventDefault(); touchInputRef.current.up = false; }}
-              className="w-10 h-10 rounded-xl bg-zinc-800 hover:bg-amber-600 active:bg-amber-500 text-white font-bold flex items-center justify-center text-sm transition shadow border border-zinc-700 active:scale-95"
+              onPointerCancel={() => { touchInputRef.current.up = false; }}
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-zinc-800 hover:bg-amber-600 active:bg-amber-500 text-white font-bold flex items-center justify-center text-sm transition shadow border border-zinc-700 active:scale-95 touch-none touch-manipulation"
             >
               ▲
             </button>
@@ -3085,7 +3115,8 @@ export const Game3DRoomView: React.FC<Game3DRoomViewProps> = (props) => {
               onPointerDown={(e) => { e.preventDefault(); touchInputRef.current.left = true; }}
               onPointerUp={(e) => { e.preventDefault(); touchInputRef.current.left = false; }}
               onPointerLeave={(e) => { e.preventDefault(); touchInputRef.current.left = false; }}
-              className="w-10 h-10 rounded-xl bg-zinc-800 hover:bg-amber-600 active:bg-amber-500 text-white font-bold flex items-center justify-center text-sm transition shadow border border-zinc-700 active:scale-95"
+              onPointerCancel={() => { touchInputRef.current.left = false; }}
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-zinc-800 hover:bg-amber-600 active:bg-amber-500 text-white font-bold flex items-center justify-center text-sm transition shadow border border-zinc-700 active:scale-95 touch-none touch-manipulation"
             >
               ◀
             </button>
@@ -3094,7 +3125,8 @@ export const Game3DRoomView: React.FC<Game3DRoomViewProps> = (props) => {
               onPointerDown={(e) => { e.preventDefault(); touchInputRef.current.down = true; }}
               onPointerUp={(e) => { e.preventDefault(); touchInputRef.current.down = false; }}
               onPointerLeave={(e) => { e.preventDefault(); touchInputRef.current.down = false; }}
-              className="w-10 h-10 rounded-xl bg-zinc-800 hover:bg-amber-600 active:bg-amber-500 text-white font-bold flex items-center justify-center text-sm transition shadow border border-zinc-700 active:scale-95"
+              onPointerCancel={() => { touchInputRef.current.down = false; }}
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-zinc-800 hover:bg-amber-600 active:bg-amber-500 text-white font-bold flex items-center justify-center text-sm transition shadow border border-zinc-700 active:scale-95 touch-none touch-manipulation"
             >
               ▼
             </button>
@@ -3103,7 +3135,8 @@ export const Game3DRoomView: React.FC<Game3DRoomViewProps> = (props) => {
               onPointerDown={(e) => { e.preventDefault(); touchInputRef.current.right = true; }}
               onPointerUp={(e) => { e.preventDefault(); touchInputRef.current.right = false; }}
               onPointerLeave={(e) => { e.preventDefault(); touchInputRef.current.right = false; }}
-              className="w-10 h-10 rounded-xl bg-zinc-800 hover:bg-amber-600 active:bg-amber-500 text-white font-bold flex items-center justify-center text-sm transition shadow border border-zinc-700 active:scale-95"
+              onPointerCancel={() => { touchInputRef.current.right = false; }}
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-zinc-800 hover:bg-amber-600 active:bg-amber-500 text-white font-bold flex items-center justify-center text-sm transition shadow border border-zinc-700 active:scale-95 touch-none touch-manipulation"
             >
               ▶
             </button>
@@ -3125,6 +3158,7 @@ export const Game3DRoomView: React.FC<Game3DRoomViewProps> = (props) => {
               touchInputRef.current.run = false;
               setIsTouchRunning(false);
             }}
+            onPointerCancel={() => { touchInputRef.current.run = false; setIsTouchRunning(false); }}
             className={`px-3 py-1 rounded-xl text-[11px] font-bold transition shadow border ${
               isTouchRunning
                 ? 'bg-amber-600 text-white border-amber-400 scale-95'
